@@ -1,7 +1,6 @@
 package com.abeernch.civicobd.ui
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -137,7 +136,7 @@ fun SensorsScreen(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .border(1.dp, Palette.Hairline, RoundedCornerShape(10.dp))
-                        .clickable(onClick = onShareLog)
+                        .pressable(onClick = onShareLog)
                         .padding(vertical = 14.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,

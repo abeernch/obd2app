@@ -32,9 +32,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Line colours for combined plots. White first, then hues that stay readable on black. */
+/** Line colours for combined plots: white, papaya, then hues that stay readable on black. */
 val SeriesColors = listOf(
-    Color(0xFFFFFFFF), Color(0xFF4CC9E0), Color(0xFFF2A33A), Color(0xFF7BD389),
+    Color(0xFFF5F5F2), Color(0xFFFF8000), Color(0xFF4CC9E0), Color(0xFF7BD389),
     Color(0xFFB69CF2), Color(0xFFF28CB1), Color(0xFFE8E37A), Color(0xFF8AB4F8),
 )
 
@@ -191,7 +191,7 @@ fun LineChart(
         val c = view.cursor
         if (c != null && c in view.start..view.end) {
             drawLine(
-                Palette.Target, Offset(x(c), top), Offset(x(c), bottom), 1.dp.toPx(),
+                Palette.Accent, Offset(x(c), top), Offset(x(c), bottom), 1.dp.toPx(),
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
             )
         }

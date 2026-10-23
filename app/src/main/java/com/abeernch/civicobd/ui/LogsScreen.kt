@@ -3,7 +3,6 @@ package com.abeernch.civicobd.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -100,7 +99,7 @@ private fun RecordingCard(rec: RecordingRow, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .border(1.dp, Palette.Hairline, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .pressable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -110,7 +109,7 @@ private fun RecordingCard(rec: RecordingRow, onClick: () -> Unit) {
         }
         Text(
             rec.source,
-            style = Type.label.copy(color = if (rec.source == "Live") Palette.Target else Palette.Label),
+            style = Type.label.copy(color = if (rec.source == "Live") Palette.Accent else Palette.Label),
         )
     }
 }
@@ -161,8 +160,8 @@ private fun RecordingView(
         item {
             Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Back", style = Type.body.copy(color = Palette.Target),
-                    modifier = Modifier.clickable(onClick = onBack).padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
+                    "Back", style = Type.body.copy(color = Palette.Accent),
+                    modifier = Modifier.pressable(onClick = onBack).padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
                 )
                 Text(
                     SimpleDateFormat("d MMM, HH:mm", Locale.US).format(Date(rec.startMs)),
@@ -170,8 +169,8 @@ private fun RecordingView(
                 )
                 Text(
                     if (view.zoomed) "Zoom out" else "",
-                    style = Type.label.copy(color = Palette.Target),
-                    modifier = Modifier.clickable { view.reset() }.padding(4.dp),
+                    style = Type.label.copy(color = Palette.Accent),
+                    modifier = Modifier.pressable { view.reset() }.padding(4.dp),
                 )
             }
         }
@@ -216,7 +215,7 @@ private fun RecordingView(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { if (on) picked.remove(ch.id) else picked.add(ch.id) }
+                                .pressable { if (on) picked.remove(ch.id) else picked.add(ch.id) }
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -270,7 +269,7 @@ private fun Readout(shown: List<Series>, view: ChartView, combined: Boolean) {
             Text("Tap a chart to read values", style = Type.label)
             return@Column
         }
-        Text(SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(c)), style = Type.body.copy(color = Palette.Target))
+        Text(SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(c)), style = Type.body.copy(color = Palette.Accent))
         shown.forEachIndexed { i, s ->
             val j = s.indexAt(c)
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -292,7 +291,7 @@ fun OutlineButton(text: String, color: Color = Palette.Value, onClick: () -> Uni
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, Palette.Hairline, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .pressable(onClick = onClick)
             .padding(vertical = 14.dp, horizontal = 12.dp),
         horizontalArrangement = Arrangement.Center,
     ) {

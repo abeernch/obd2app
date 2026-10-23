@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -159,10 +158,10 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            buckets.forEach { b ->
+            buckets.forEachIndexed { index, b ->
                 val value = valueOf(b.summary, metric)
                 val target = chartHeight * ((value ?: 0.0) / max).toFloat().coerceIn(0f, 1f)
-                val barHeight by animateDpAsState(target, tween(450), label = "bar")
+                val barHeight by animateDpAsState(target, Motion.glide(), label = "bar")
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (showValues) {
                         Text(fmt(value, decimals), style = Type.label.copy(fontSize = 10.sp), maxLines = 1)
@@ -173,7 +172,7 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
                             .fillMaxWidth()
                             .height(barHeight)
                             .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                            .background(Palette.Value)
+                            .background(if (index == buckets.lastIndex) Palette.Accent else Palette.Value)
                     )
                 }
             }
@@ -236,14 +235,16 @@ fun <T> Chips(options: List<T>, selected: T, label: (T) -> String, onPick: (T) -
     ) {
         options.forEach { option ->
             val on = option == selected
-            val edge by animateColorAsState(if (on) Palette.Target else Palette.Hairline, tween(250), label = "chip")
+            val edge by animateColorAsState(if (on) Palette.Accent else Palette.Hairline, Motion.fade(250), label = "chip")
+            val fill by animateColorAsState(if (on) Palette.AccentSoft else Palette.Background, Motion.fade(250), label = "chipFill")
             Text(
                 label(option),
                 style = Type.body.copy(color = if (on) Palette.Value else Palette.Label, fontSize = 13.sp),
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
+                    .background(fill)
                     .border(1.dp, edge, RoundedCornerShape(16.dp))
-                    .clickable { onPick(option) }
+                    .pressable { onPick(option) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }

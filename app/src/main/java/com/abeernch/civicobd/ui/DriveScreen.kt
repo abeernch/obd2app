@@ -41,7 +41,7 @@ fun DriveScreen(live: LiveState, today: Summary) {
     val heroValue: String
     val heroUnit: String
     val heroColor = when {
-        d.fuelCut -> Palette.Target
+        d.fuelCut -> Palette.Accent
         else -> Palette.Value
     }
     when {
@@ -58,7 +58,8 @@ fun DriveScreen(live: LiveState, today: Summary) {
             .padding(horizontal = 20.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        RollingNumber(heroValue, Type.hero.copy(color = heroColor))
+        val heroTint by androidx.compose.animation.animateColorAsState(heroColor, Motion.fade(400), label = "hero")
+        RollingNumber(heroValue, Type.hero.copy(color = heroTint))
         Text(heroUnit, style = Type.label)
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = trip.kmPerL)
@@ -119,10 +120,10 @@ fun DriveScreen(live: LiveState, today: Summary) {
 private fun EconomyBar(instant: Double?, average: Double?) {
     val scale = 30.0
     val fill by animateFloatAsState(
-        ((instant ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), tween(400), label = "fill",
+        ((instant ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), Motion.settle(), label = "fill",
     )
     val mark by animateFloatAsState(
-        ((average ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), tween(600), label = "mark",
+        ((average ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), Motion.glide(), label = "mark",
     )
     Column {
         Canvas(Modifier.fillMaxWidth().height(14.dp)) {
@@ -132,14 +133,14 @@ private fun EconomyBar(instant: Double?, average: Double?) {
             if (fill > 0f) drawLine(Palette.Value, Offset(0f, y), Offset(w * fill, y), 3.dp.toPx(), StrokeCap.Round)
             if (average != null) {
                 drawLine(
-                    Palette.Target, Offset(w * mark, 0f), Offset(w * mark, size.height),
+                    Palette.Accent, Offset(w * mark, 0f), Offset(w * mark, size.height),
                     2.dp.toPx(), StrokeCap.Round,
                 )
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("0", style = Type.label)
-            Text(if (average != null) "trip average ${fmt(average)}" else "", style = Type.label.copy(color = Palette.Target))
+            Text(if (average != null) "trip average ${fmt(average)}" else "", style = Type.label.copy(color = Palette.Accent))
             Text("30", style = Type.label)
         }
     }

@@ -2,7 +2,14 @@ package com.abeernch.civicobd.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.key
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -36,39 +43,58 @@ import androidx.compose.material3.Text
  */
 @Composable
 fun RollingNumber(text: String, style: TextStyle, modifier: Modifier = Modifier) {
+    // Pad from the right so the units digit always keeps the same slot.
     Row(modifier) {
         text.forEachIndexed { index, char ->
-            AnimatedContent(
-                targetState = char,
-                transitionSpec = {
-                    (slideInVertically(tween(220)) { it / 2 } + fadeIn(tween(220))) togetherWith
-                        (slideOutVertically(tween(220)) { -it / 2 } + fadeOut(tween(160))) using
-                        SizeTransform(clip = true)
-                },
-                label = "digit$index",
-            ) { c ->
-                Text(c.toString(), style = style)
+            key(text.length - index) {
+                AnimatedContent(
+                    targetState = char,
+                    transitionSpec = {
+                        // A rising digit rolls up from below, a falling one drops from above.
+                        val up = targetState > initialState
+                        val slide = spring(
+                            dampingRatio = 0.85f,
+                            stiffness = Spring.StiffnessMediumLow,
+                            visibilityThreshold = IntOffset.VisibilityThreshold,
+                        )
+                        (slideInVertically(slide) { h -> if (up) h else -h } + fadeIn(tween(260))) togetherWith
+                            (slideOutVertically(slide) { h -> if (up) -h else h } + fadeOut(tween(180))) using
+                            SizeTransform(clip = true)
+                    },
+                    label = "digit",
+                ) { c ->
+                    Text(c.toString(), style = style)
+                }
             }
         }
     }
 }
 
-/** Connection status light. Breathes while working, steady when settled. */
+/**
+ * Connection status light. Breathes slowly while searching.
+ * When [halo] is on (connected and live), a soft ring ripples out from it every two seconds.
+ */
 @Composable
-fun StatusDot(color: Color, breathing: Boolean, size: Dp = 8.dp) {
+fun StatusDot(color: Color, breathing: Boolean, size: Dp = 8.dp, halo: Boolean = false) {
     val transition = rememberInfiniteTransition(label = "dot")
     val pulse = transition.animateFloat(
-        initialValue = 0.25f,
+        initialValue = 0.3f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse",
     )
-    Canvas(
-        Modifier
-            .size(size)
-            .alpha(if (breathing) pulse.value else 1f)
-    ) {
-        drawCircle(color)
+    val ripple = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearOutSlowInEasing)),
+        label = "ripple",
+    )
+    Canvas(Modifier.size(size * 3)) {
+        val r = size.toPx() / 2
+        if (halo) {
+            drawCircle(color.copy(alpha = 0.45f * (1f - ripple.value)), radius = r + r * 2f * ripple.value)
+        }
+        drawCircle(color.copy(alpha = if (breathing) pulse.value else 1f), radius = r)
     }
 }
 

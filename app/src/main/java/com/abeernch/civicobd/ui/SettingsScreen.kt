@@ -1,7 +1,6 @@
 package com.abeernch.civicobd.ui
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,7 +77,7 @@ fun SettingsScreen(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable {
+                        .pressable {
                             adapter = d.address
                             settings.adapterAddress = d.address
                             settings.adapterName = d.name
@@ -87,13 +86,13 @@ fun SettingsScreen(
                         .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconBluetooth(if (on) Palette.Target else Palette.Label, 18.dp)
+                    IconBluetooth(if (on) Palette.Accent else Palette.Label, 18.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(d.name, style = Type.body.copy(color = if (on) Palette.Value else Palette.Label))
                         Text(d.address, style = Type.label)
                     }
-                    if (on) Text("in use", style = Type.label.copy(color = Palette.Target))
+                    if (on) Text("in use", style = Type.label.copy(color = Palette.Accent))
                 }
             }
         }
@@ -110,7 +109,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .border(1.dp, Palette.Hairline, RoundedCornerShape(10.dp))
-                    .clickable(onClick = onBattery)
+                    .pressable(onClick = onBattery)
                     .padding(vertical = 14.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
@@ -130,7 +129,7 @@ private fun NumberField(name: String, value: String, unit: String, onChange: (St
             onValueChange = { text -> onChange(text.filter { it.isDigit() || it == '.' }) },
             singleLine = true,
             textStyle = Type.body.copy(textAlign = TextAlign.End),
-            cursorBrush = SolidColor(Palette.Target),
+            cursorBrush = SolidColor(Palette.Accent),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier
                 .width(96.dp)
