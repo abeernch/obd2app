@@ -106,6 +106,41 @@ fun IconShare(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, 
 }
 
 @Composable
+fun IconGauge(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    drawArc(
+        color = color, startAngle = 150f, sweepAngle = 240f, useCenter = false,
+        topLeft = Offset(3f * u, 4f * u),
+        size = androidx.compose.ui.geometry.Size(18f * u, 18f * u),
+        style = stroke,
+    )
+    drawLine(color, Offset(12f * u, 13f * u), Offset(16.5f * u, 8.5f * u), stroke.width, StrokeCap.Round)
+}
+
+@Composable
+fun IconList(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    for (y in listOf(6f, 12f, 18f)) {
+        drawLine(color, Offset(4f * u, y * u), Offset(20f * u, y * u), stroke.width, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun IconBars(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    drawLine(color, Offset(6f * u, 20f * u), Offset(6f * u, 12f * u), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(12f * u, 20f * u), Offset(12f * u, 5f * u), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(18f * u, 20f * u), Offset(18f * u, 9f * u), stroke.width, StrokeCap.Round)
+}
+
+@Composable
+fun IconSliders(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    drawLine(color, Offset(4f * u, 8f * u), Offset(20f * u, 8f * u), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(4f * u, 16f * u), Offset(20f * u, 16f * u), stroke.width, StrokeCap.Round)
+    for (knob in listOf(Offset(9f * u, 8f * u), Offset(15f * u, 16f * u))) {
+        drawCircle(Palette.Background, 2.5f * u, knob) // hides the line inside the knob
+        drawCircle(color, 2.5f * u, knob, style = stroke)
+    }
+}
+
+@Composable
 fun IconPower(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
     drawArc(
         color = color,

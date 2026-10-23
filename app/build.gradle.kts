@@ -11,10 +11,11 @@ android {
     defaultConfig {
         applicationId = "com.abeernch.civicobd"
         minSdk = 26
-        targetSdk = 34
+        // Kept at 32 on purpose: apps targeting 33+ may not switch Bluetooth on by themselves.
+        targetSdk = 32
         // The build pipeline passes the run number, so every APK has a higher version.
         versionCode = (System.getenv("BUILD_NUMBER") ?: "1").toInt()
-        versionName = "0.1." + (System.getenv("BUILD_NUMBER") ?: "1")
+        versionName = "0.2." + (System.getenv("BUILD_NUMBER") ?: "1")
     }
 
     // One fixed key, so a new APK installs over the old one without uninstalling.
