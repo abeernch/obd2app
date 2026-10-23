@@ -10,6 +10,7 @@ import com.abeernch.civicobd.obd.ClassicTransport
 import com.abeernch.civicobd.obd.ElmSession
 import com.abeernch.civicobd.obd.Pids
 import com.abeernch.civicobd.obd.Transport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +54,7 @@ class ProbeViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
     private var transport: Transport? = null
+    private var reachedLive = false
     private val clock = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     // Values polled in the live loop, in priority order.
@@ -99,16 +101,27 @@ class ProbeViewModel(app: Application) : AndroidViewModel(app) {
         val device: BluetoothDevice = bluetoothAdapter()?.getRemoteDevice(address) ?: return
         job?.cancel()
         job = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                run(ClassicTransport(device))
-            } catch (e: Exception) {
-                if (isActive) {
+            // Keeps reconnecting after a dropped link until Disconnect is tapped.
+            // Waits 2, 4, 8, 16, then 30 s between attempts (spec section 4.4).
+            var attempt = 0
+            while (isActive) {
+                reachedLive = false
+                try {
+                    run(ClassicTransport(device))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     log("Stopped: ${e.message}")
-                    _state.update { it.copy(phase = Phase.Failed, message = e.message ?: "Connection lost") }
+                } finally {
+                    transport?.close()
+                    transport = null
                 }
-            } finally {
-                transport?.close()
-                transport = null
+                attempt = if (reachedLive) 1 else attempt + 1
+                val waitSeconds = minOf(30, 1 shl attempt)
+                _state.update {
+                    it.copy(phase = Phase.Failed, message = "Link lost, retrying in $waitSeconds s")
+                }
+                delay(waitSeconds * 1000L)
             }
         }
     }
@@ -171,15 +184,24 @@ class ProbeViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(supported = realPids) }
         log("Supported: " + supported.joinToString(" ") { "%02X".format(it) })
 
+        // Speed-up. On ISO 9141-2 the adapter waits after each answer in case a second
+        // computer replies. Adding "1" to a request tells it one answer is enough.
+        // Build 1 measured about 280 ms per request without this.
+        val trial = elm.send(Pids.command(0x0C) + "1", timeoutMs = 1500)
+        val suffix = if (Pids.dataBytes(trial, 0x0C, 2) != null) "1" else ""
+        log(if (suffix.isEmpty()) "Single-answer mode: not supported" else "Single-answer mode: on")
+        elm.send("ATAT2") // more aggressive adaptive timing
+
         // Live loop
         val toPoll = livePids.filter { supported.isEmpty() || it in supported }
+        reachedLive = true
         _state.update { it.copy(phase = Phase.Live, message = "Live") }
         while (true) {
             yield() // stops the loop cleanly when Disconnect is tapped
             val cycleStart = System.currentTimeMillis()
             for (code in toPoll) {
                 val pid = Pids.BY_CODE[code] ?: continue
-                val reply = elm.send(Pids.command(code), timeoutMs = 1500)
+                val reply = elm.send(Pids.command(code) + suffix, timeoutMs = 1500)
                 val value = Pids.decode(reply, pid) ?: continue
                 _state.update { it.copy(live = it.live + (code to value)) }
             }

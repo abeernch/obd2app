@@ -100,7 +100,8 @@ fun ProbeScreen(
                     DeviceRow(d, selected = d.address == state.selected, onClick = { onSelect(d.address) })
                 }
                 Spacer(Modifier.height(12.dp))
-                val connected = state.phase == Phase.Live || busy
+                // Anything but Idle means a connection job is running (live, connecting or retrying).
+                val connected = state.phase != Phase.Idle
                 ActionButton(
                     text = if (connected) "Disconnect" else "Connect",
                     accent = !connected,
