@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+: the system splash is plain black with the gauge icon,
+    <!-- Android 12+: the system splash is plain black with no icon,
          so it hands over seamlessly to the animated splash in the app. -->
     <style name="Theme.CivicObd" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/black</item>
         <item name="android:navigationBarColor">@android:color/black</item>
         <item name="android:windowSplashScreenBackground">@android:color/black</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
         <item name="android:windowSplashScreenAnimationDuration">200</item>
     </style>
 </resources>

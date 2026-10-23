@@ -56,17 +56,24 @@ enum class Tab(val label: String) { Drive("Drive"), Sensors("Sensors"), Stats("S
 fun AppShell(live: LiveState, screen: @Composable (Tab) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.Drive) }
     var splashDone by rememberSaveable { mutableStateOf(false) }
+    // The app is composed from the first frame, hidden under the splash, so it is ready
+    // the moment the splash starts to leave. It then rises into place while the splash fades:
+    // a crossfade, never a blank frame.
+    var revealed by rememberSaveable { mutableStateOf(false) }
+    val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.settle(), label = "reveal")
 
     Box(Modifier.fillMaxSize().background(Palette.Background)) {
-        // The app sits underneath and rises into place as the splash fades.
-        AnimatedVisibility(
-            visible = splashDone,
-            enter = fadeIn(Motion.fade(500)) + slideInVertically(Motion.settle()) { it / 12 } +
-                scaleIn(Motion.settle(), initialScale = 0.98f),
-        ) {
+        run {
             Column(
                 Modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = reveal
+                        translationY = (1f - reveal) * 32.dp.toPx()
+                        val s = 0.97f + 0.03f * reveal
+                        scaleX = s
+                        scaleY = s
+                    }
                     .statusBarsPadding()
                     .navigationBarsPadding()
             ) {
@@ -88,7 +95,7 @@ fun AppShell(live: LiveState, screen: @Composable (Tab) -> Unit) {
             }
         }
         if (!splashDone) {
-            Splash(onFinished = { splashDone = true })
+            Splash(onReveal = { revealed = true }, onFinished = { splashDone = true })
         }
     }
 }

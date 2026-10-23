@@ -41,7 +41,7 @@ import kotlin.math.sin
  * the name tightens into place, then everything lifts away into the app.
  */
 @Composable
-fun Splash(onFinished: () -> Unit) {
+fun Splash(onReveal: () -> Unit, onFinished: () -> Unit) {
     val ring = remember { Animatable(0f) }      // 0..1 of the arc drawn
     val needle = remember { Animatable(0f) }    // 0..1 of full scale
     val word = remember { Animatable(0f) }      // name fade and tracking
@@ -56,7 +56,8 @@ fun Splash(onFinished: () -> Unit) {
             }
             launch { word.animateTo(1f, tween(650, delayMillis = 450, easing = FastOutSlowInEasing)) }
         }
-        exit.animateTo(1f, tween(380, easing = FastOutSlowInEasing))
+        onReveal() // the app starts rising underneath as the splash lifts away
+        exit.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
         onFinished()
     }
 
