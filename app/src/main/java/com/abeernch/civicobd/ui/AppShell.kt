@@ -86,7 +86,7 @@ private fun Header(live: LiveState) {
         Text("Civic", style = Type.title, modifier = Modifier.weight(1f))
         StatusDot(color, breathing = working)
         Spacer(Modifier.width(8.dp))
-        Crossfade(live.status, tween(300), label = "status") { text ->
+        Crossfade(live.status, animationSpec = tween(300), label = "status") { text ->
             Text(text, style = Type.label.copy(color = color), maxLines = 1)
         }
     }
