@@ -78,7 +78,7 @@ fun LogsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            OutlineButton("Import Car Scanner CSV", onImport)
+            OutlineButton("Import Car Scanner CSV", onClick = onImport)
             Spacer(Modifier.height(12.dp))
             Text(
                 if (list.isEmpty()) "No recordings yet. Drives are recorded automatically."
