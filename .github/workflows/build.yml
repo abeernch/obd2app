@@ -85,15 +85,17 @@ jobs:
           profile: pixel_6
           disable-animations: false
           emulator-boot-timeout: 900
-          script: bash .github/ui-test.sh
+          script: bash .github/ui-test.sh > ui-test-run.log 2>&1 ; cat ui-test-run.log
 
       - name: Publish ui-test release
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -la ui-test || exit 0
+          mkdir -p ui-test
+          cp ui-test-run.log ui-test/run_log.txt || true
+          ls -la ui-test
           gh release delete ui-test --yes --cleanup-tag || true
-          gh release create ui-test ui-test/*.png ui-test/*.mp4 ui-test/*.txt ui-test/*.xml \
+          gh release create ui-test $(find ui-test -maxdepth 1 -type f -size +0) \
             --prerelease --title "UI test ${{ github.run_number }}" \
             --notes "Emulator run of ${{ github.sha }}."
