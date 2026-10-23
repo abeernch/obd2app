@@ -104,18 +104,34 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val live by LiveBus.state.collectAsState()
-            var today by remember { mutableStateOf(Summary()) }
-            var week by remember { mutableStateOf(Summary()) }
-            var total by remember { mutableStateOf(Summary()) }
+            var todayRows by remember { mutableStateOf(emptyList<TripRow>()) }
+            var weekRows by remember { mutableStateOf(emptyList<TripRow>()) }
+            var allRows by remember { mutableStateOf(emptyList<TripRow>()) }
 
-            // Totals refresh whenever the service writes a trip (about every 10 s while driving).
+            // Saved trips refresh whenever the service writes one (about every 10 s while driving).
             LaunchedEffect(live.tripsVersion) {
                 withContext(Dispatchers.IO) {
-                    today = store.summary(Period.Today)
-                    week = store.summary(Period.Week)
-                    total = store.summary(Period.All)
+                    todayRows = Period.Today.range().let { (a, b) -> store.between(a, b) }
+                    weekRows = Period.Week.range().let { (a, b) -> store.between(a, b) }
+                    allRows = Period.All.range().let { (a, b) -> store.between(a, b) }
                 }
             }
+            // The trip in progress is counted from live totals, not its last save, so "today" never lags the trip.
+            fun withLive(rows: List<TripRow>): Summary {
+                val t = live.trip
+                val saved = rows.filter { it.id != t.id }
+                if (!t.active) return Summary.of(saved)
+                return Summary.of(
+                    saved + TripRow(
+                        id = t.id, startMs = t.startMs, endMs = System.currentTimeMillis(),
+                        distanceKm = t.distanceKm, fuelL = t.fuelL, cost = t.fuelL * live.fuelPrice,
+                        driveS = t.driveS, idleS = t.idleS, maxSpeed = t.maxSpeed,
+                    )
+                )
+            }
+            val today = withLive(todayRows)
+            val week = withLive(weekRows)
+            val total = withLive(allRows)
 
             AppShell(live) { tab ->
                 when (tab) {

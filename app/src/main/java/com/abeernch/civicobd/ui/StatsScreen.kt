@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -167,12 +168,14 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
                         Text(fmt(value, decimals), style = Type.label.copy(fontSize = 10.sp), maxLines = 1)
                         Spacer(Modifier.height(4.dp))
                     }
+                    // Slim bars, never wider than 28 dp, so one or two days do not turn into slabs.
                     Box(
                         Modifier
+                            .widthIn(max = 28.dp)
                             .fillMaxWidth()
                             .height(barHeight)
-                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                            .background(if (index == buckets.lastIndex) Palette.Accent else Palette.Value)
+                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                            .background(if (index == buckets.lastIndex) Palette.Accent else Palette.Value.copy(alpha = 0.85f))
                     )
                 }
             }

@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -126,22 +127,37 @@ private fun Header(live: LiveState) {
 
 @Composable
 private fun TabBar(selected: Tab, onPick: (Tab) -> Unit) {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
-        val slot = maxWidth / Tab.entries.size
-        // The pill glides to the chosen tab with a slight overshoot.
-        val x by animateDpAsState(slot * selected.ordinal, Motion.glide(), label = "pill")
-        Box(
-            Modifier
-                .offset(x = x + 10.dp)
-                .width(slot - 20.dp)
-                .height(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Palette.AccentSoft)
-        )
-        Row(Modifier.fillMaxWidth()) {
-            Tab.entries.forEach { t ->
-                TabButton(t, t == selected, Modifier.weight(1f)) { onPick(t) }
+    // A slightly raised panel, separated from the screen by a hairline.
+    Column(Modifier.fillMaxWidth().background(Palette.Surface)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 8.dp, bottom = 6.dp)) {
+            val slot = maxWidth / Tab.entries.size
+            val pillWidth = 52.dp
+            val home = slot * selected.ordinal + (slot - pillWidth) / 2
+
+            // Elastic indicator: the edge leading the move runs ahead, the trailing edge follows,
+            // so the pill stretches in flight and settles back to its size on arrival.
+            val leadFast = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.8f, stiffness = 900f)
+            val trailSlow = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.85f, stiffness = 300f)
+            var lastIndex by androidx.compose.runtime.remember { mutableStateOf(selected.ordinal) }
+            val movingRight = selected.ordinal >= lastIndex
+            androidx.compose.runtime.SideEffect { lastIndex = selected.ordinal }
+            val left by animateDpAsState(home, if (movingRight) trailSlow else leadFast, label = "pillLeft")
+            val right by animateDpAsState(home + pillWidth, if (movingRight) leadFast else trailSlow, label = "pillRight")
+
+            Box(
+                Modifier
+                    .offset(x = left, y = 2.dp)
+                    .width((right - left).coerceAtLeast(pillWidth / 2))
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(Palette.AccentSoft)
+                    .border(1.dp, Palette.Accent.copy(alpha = 0.55f), RoundedCornerShape(15.dp))
+            )
+            Row(Modifier.fillMaxWidth()) {
+                Tab.entries.forEach { t ->
+                    TabButton(t, t == selected, Modifier.weight(1f)) { onPick(t) }
+                }
             }
         }
     }
@@ -149,18 +165,31 @@ private fun TabBar(selected: Tab, onPick: (Tab) -> Unit) {
 
 @Composable
 private fun TabButton(tab: Tab, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val color by animateColorAsState(if (on) Palette.Accent else Palette.Label, Motion.fade(250), label = "tab")
-    val lift by animateFloatAsState(if (on) 1.08f else 1f, Motion.glide(), label = "lift")
+    val iconColor by animateColorAsState(if (on) Palette.Accent else Palette.Label, Motion.fade(250), label = "tabIcon")
+    val textColor by animateColorAsState(if (on) Palette.Value else Palette.Label, Motion.fade(250), label = "tabText")
+    // The chosen icon rises a touch, like a key being lifted.
+    val rise by animateFloatAsState(if (on) -1.5f else 0f, Motion.glide(), label = "rise")
     Column(
         modifier
-            .height(56.dp)
+            .height(58.dp)
             .pressable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
-        Box(Modifier.graphicsLayer { scaleX = lift; scaleY = lift }) { tabIcon(tab, color, 22.dp) }
+        Box(
+            Modifier
+                .height(34.dp)
+                .graphicsLayer { translationY = rise * density },
+            contentAlignment = Alignment.Center,
+        ) { tabIcon(tab, iconColor, 21.dp) }
         Spacer(Modifier.height(4.dp))
-        Text(tab.label, style = Type.label.copy(color = if (on) Palette.Value else Palette.Label))
+        Text(
+            tab.label,
+            style = Type.label.copy(
+                color = textColor,
+                fontSize = androidx.compose.ui.unit.TextUnit(11.5f, androidx.compose.ui.unit.TextUnitType.Sp),
+                fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+            ),
+        )
     }
 }
 

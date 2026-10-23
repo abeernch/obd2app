@@ -203,9 +203,14 @@ private fun timeAt(view: ChartView, px: Float, width: Float): Long {
     return view.start + ((view.end - view.start) * f).toLong()
 }
 
-/** Short number for axis labels: 2700, 14.2, 0.05 */
-fun compact(v: Float): String = when {
-    kotlin.math.abs(v) >= 100 -> "%.0f".format(v)
-    kotlin.math.abs(v) >= 10 -> "%.1f".format(v)
-    else -> "%.2f".format(v)
+/** Short number for axis labels and readouts: 2700, 14.2, 3.4, 0.05, 0 */
+fun compact(v: Float): String {
+    val a = kotlin.math.abs(v)
+    val text = when {
+        a < 0.005f -> "0"
+        a >= 100 -> "%.0f".format(v)
+        a >= 1 -> "%.1f".format(v)
+        else -> "%.2f".format(v)
+    }
+    return text.removeSuffix(".0")
 }

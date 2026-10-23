@@ -53,30 +53,42 @@ adb push .github/sample_carscanner.csv /data/local/tmp/2026-10-22_09-00-39.csv
 adb shell "cat /data/local/tmp/2026-10-22_09-00-39.csv | run-as $PKG sh -c 'mkdir -p files && cat > files/2026-10-22_09-00-39.csv'"
 CSV_PATH=/data/data/$PKG/files/2026-10-22_09-00-39.csv
 
-# 1. Cold start, recorded, with the demo car switched on.
-adb shell screenrecord --time-limit 8 /sdcard/splash.mp4 &
+# Finds an element's centre without tapping it.
+pos_text() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+  python3 .github/find_text.py "$OUT/ui.xml" "$1" 0
+}
+
+# Fast frame grabs (about 3 to 5 per second), more reliable than screenrecord on emulators.
+burst() {  # burst NAME COUNT
+  for n in $(seq -w 1 "$2"); do adb exec-out screencap -p > "$OUT/$1_$n.png"; done
+}
+
+# 1. Cold start with the demo car switched on. Frames of the splash, plus a recording attempt.
+adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 10 /sdcard/splash.mp4 &
 REC=$!
-sleep 1
-adb shell am start -n $PKG/.MainActivity --ez demo true \
-  --es import_path $CSV_PATH
-sleep 0.6; shot 01_splash_early
-sleep 0.6; shot 02_splash_mid
+sleep 2
+adb shell am start -n $PKG/.MainActivity --ez demo true --es import_path $CSV_PATH
+burst splash 12
 wait $REC
 adb pull /sdcard/splash.mp4 "$OUT/splash.mp4"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
-sleep 25; shot 03_drive_accelerating
+sleep 22; shot 03_drive_accelerating
 sleep 20; shot 04_drive_cruise
 
-# 3. Record tab switching with animations on.
-adb shell screenrecord --time-limit 12 /sdcard/tabs.mp4 &
+# 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.
+TAB_DRIVE=$(pos_text "Drive"); TAB_STATS=$(pos_text "Stats"); TAB_SETTINGS=$(pos_text "Settings")
+echo "tabs: drive=$TAB_DRIVE stats=$TAB_STATS settings=$TAB_SETTINGS"
+adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 10 /sdcard/tabs.mp4 &
 REC=$!
 sleep 1
-tap_text "Sensors"; sleep 1.5
-tap_text "Stats"; sleep 1.5
-tap_text "Logs"; sleep 1.5
-tap_text "Settings"; sleep 1.5
-tap_text "Drive"; sleep 1.5
+[ -n "$TAB_STATS" ] && adb shell input tap $TAB_STATS; burst tab_to_stats 5
+sleep 1
+[ -n "$TAB_SETTINGS" ] && adb shell input tap $TAB_SETTINGS; burst tab_to_settings 5
+sleep 1
+[ -n "$TAB_DRIVE" ] && adb shell input tap $TAB_DRIVE; burst tab_to_drive 5
 wait $REC
 adb pull /sdcard/tabs.mp4 "$OUT/tabs.mp4"
 
