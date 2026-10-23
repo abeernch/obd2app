@@ -60,7 +60,7 @@ fun AppShell(live: LiveState, screen: @Composable (Tab) -> Unit) {
     // the moment the splash starts to leave. It then rises into place while the splash fades:
     // a crossfade, never a blank frame.
     var revealed by rememberSaveable { mutableStateOf(false) }
-    val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.settle(), label = "reveal")
+    val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.fade(480), label = "reveal")
 
     Box(Modifier.fillMaxSize().background(Palette.Background)) {
         run {

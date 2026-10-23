@@ -56,8 +56,9 @@ fun Splash(onReveal: () -> Unit, onFinished: () -> Unit) {
             }
             launch { word.animateTo(1f, tween(650, delayMillis = 450, easing = FastOutSlowInEasing)) }
         }
-        onReveal() // the app starts rising underneath as the splash lifts away
-        exit.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+        onReveal() // the app starts rising underneath first...
+        kotlinx.coroutines.delay(160)
+        exit.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) // ...then the splash lifts away over it
         onFinished()
     }
 

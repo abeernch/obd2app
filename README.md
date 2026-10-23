@@ -32,7 +32,7 @@ No local Android Studio is needed. To build locally, open the folder in Android 
 ## Phases
 
 1. Setup and build pipeline
-2. Connection probe (current)
+2. Connection probe
 3. Logging core, auto-connect, automatic trips
 4. Drive screens and fuel model
 5. History, calibration, home-screen widget, fuel price lookup
