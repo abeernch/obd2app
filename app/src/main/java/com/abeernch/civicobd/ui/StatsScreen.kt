@@ -55,7 +55,7 @@ private enum class Metric(val label: String, val unit: String) {
 private data class Bucket(val label: String, val summary: Summary)
 
 @Composable
-fun StatsScreen(store: TripStore, version: Int) {
+fun StatsScreen(store: TripStore, version: Int, onExportTrips: (List<TripRow>) -> Unit) {
     var period by remember { mutableStateOf(Period.Week) }
     var metric by remember { mutableStateOf(Metric.Distance) }
     var trips by remember { mutableStateOf(emptyList<TripRow>()) }
@@ -111,6 +111,13 @@ fun StatsScreen(store: TripStore, version: Int) {
             )
         }
         items(trips, key = { it.id }) { t -> TripCard(t) }
+        if (trips.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(horizontal = 20.dp)) {
+                    OutlineButton("Export these trips as CSV") { onExportTrips(trips) }
+                }
+            }
+        }
     }
 }
 

@@ -19,7 +19,9 @@ data class Derived(
 
 object FuelModel {
     const val DISPLACEMENT_L = 1.5
-    const val VE = 0.80               // volumetric efficiency, refined by the fuel factor
+    // Volumetric efficiency. 0.845 matches Car Scanner's fuel rate on this car
+    // (checked against its 23 Oct log). Fill-ups refine it through the fuel factor.
+    const val VE = 0.845
     const val AFR = 14.7              // stoichiometric air to fuel ratio for petrol
     const val PETROL_G_PER_L = 740.0
 

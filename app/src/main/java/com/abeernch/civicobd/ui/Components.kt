@@ -141,6 +141,19 @@ fun IconSliders(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke
 }
 
 @Composable
+fun IconWave(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    val p = Path().apply {
+        moveTo(3f * u, 15f * u)
+        lineTo(7f * u, 9f * u)
+        lineTo(11f * u, 14f * u)
+        lineTo(15f * u, 6f * u)
+        lineTo(21f * u, 12f * u)
+    }
+    drawPath(p, color, style = stroke)
+    drawLine(color, Offset(3f * u, 20f * u), Offset(21f * u, 20f * u), stroke.width, StrokeCap.Round)
+}
+
+@Composable
 fun IconPower(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
     drawArc(
         color = color,

@@ -56,12 +56,18 @@ class ObdService : Service() {
     private var lastNoteMs = 0L
     private var wasLive = false
 
+    private lateinit var recordings: com.abeernch.civicobd.core.Recordings
+    private var recId = -1L
+    private var lastSampleMs = 0L
+    private val pending = ArrayList<com.abeernch.civicobd.core.Sample>()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         settings = AppSettings(this)
         store = TripStore.get(this)
+        recordings = com.abeernch.civicobd.core.Recordings(store)
         createChannel()
         startForeground(NOTE_ID, note("Waiting for the car"))
         scope.launch { mainLoop() }
@@ -313,6 +319,7 @@ class ObdService : Service() {
                 idleS = trip.idleS + if (speed < 1) dt else 0.0,
                 maxSpeed = maxOf(trip.maxSpeed, speed),
             )
+            recordSamples(values, d, now)
             if (now - lastSavedMs > 10_000) saveTrip(now)
         }
         checkTripEnd(now)
@@ -321,9 +328,49 @@ class ObdService : Service() {
     private fun openTrip(now: Long) {
         val id = store.insert(TripRow(startMs = now, endMs = now))
         trip = TripTotals(id = id, startMs = now)
+        recId = recordings.create(now, "Live", "Drive", id)
         lastSavedMs = now
         LiveBus.log("Trip started")
         LiveBus.tripsChanged()
+    }
+
+    // ---- 1 Hz recording, with Car Scanner's parameter names so both apps chart alike ----
+
+    private fun recordSamples(values: Map<Int, Double>, d: Derived, now: Long) {
+        if (recId < 0 || now - lastSampleMs < 1_000) return
+        lastSampleMs = now
+        fun add(name: String, unit: String, value: Double?) {
+            if (value != null && !value.isNaN()) pending += com.abeernch.civicobd.core.Sample(now, name, unit, value)
+        }
+        add("Vehicle speed", "km/h", values[0x0D])
+        add("Engine RPM", "rpm", values[0x0C])
+        add("Intake manifold absolute pressure", "kPa", values[0x0B])
+        add("Throttle position", "%", values[0x11])
+        add("Intake air temperature", "°C", values[0x0F])
+        add("Calculated engine load value", "%", values[0x04])
+        add("Timing advance", "°", values[0x0E])
+        add("Engine coolant temperature", "°C", values[0x05])
+        add("OBD Module Voltage", "V", LiveBus.state.value.voltage)
+        add("Calculated instant fuel rate", "L/h", d.fuelLph)
+        add("Calculated instant fuel consumption", "km/L", d.instantKmL)
+        add("Average fuel consumption 10 sec", "km/L", d.avg10KmL)
+        add("Average fuel consumption", "km/L", trip.kmPerL)
+        add("Average speed", "km/h", trip.avgSpeed)
+        add("Distance travelled", "km", trip.distanceKm)
+        add("Fuel used", "L", trip.fuelL)
+        add("Fuel used price", "pkr", trip.fuelL * settings.fuelPrice)
+        add("Vehicle acceleration", "g", d.accelG)
+        add("Instant engine power (based on fuel consumption)", "hp", d.powerHp)
+        add("Calculated boost", "psi", d.boostKpa?.let { it * 0.145038 })
+        add("Gear", "", d.gear.toDouble())
+        if (pending.size >= 100) flushSamples(now)
+    }
+
+    private fun flushSamples(now: Long) {
+        if (recId < 0) return
+        recordings.add(recId, pending.toList())
+        pending.clear()
+        recordings.setEnd(recId, now)
     }
 
     private fun saveTrip(endMs: Long) {
@@ -348,7 +395,13 @@ class ObdService : Service() {
     private fun closeTrip(endMs: Long) {
         if (!trip.active) return
         saveTrip(endMs)
-        if (trip.distanceKm < 0.1) store.delete(trip.id) // engine started but the car did not move
+        flushSamples(endMs)
+        if (trip.distanceKm < 0.1) {
+            // Engine started but the car did not move: keep nothing.
+            if (recId >= 0) recordings.delete(recId, withTrip = false)
+            store.delete(trip.id)
+        }
+        recId = -1
         LiveBus.log("Trip ended: %.1f km".format(trip.distanceKm))
         trip = TripTotals()
         LiveBus.update { it.copy(trip = trip) }

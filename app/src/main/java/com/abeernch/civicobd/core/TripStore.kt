@@ -45,7 +45,7 @@ data class Summary(
 
 /** Local SQLite database of trips. Nothing leaves the phone. */
 class TripStore private constructor(context: Context) :
-    SQLiteOpenHelper(context, "trips.db", null, 1) {
+    SQLiteOpenHelper(context, "trips.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -54,9 +54,24 @@ class TripStore private constructor(context: Context) :
                 "distance_km REAL, fuel_l REAL, cost REAL, drive_s REAL, idle_s REAL, max_speed REAL)"
         )
         db.execSQL("CREATE INDEX trips_start ON trips(start_ms)")
+        createRecordingTables(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createRecordingTables(db)
+    }
+
+    /** Version 2: time series recordings, live or imported. See Recordings.kt. */
+    private fun createRecordingTables(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE recordings (id INTEGER PRIMARY KEY AUTOINCREMENT, start_ms INTEGER, " +
+                "end_ms INTEGER, source TEXT, name TEXT, trip_id INTEGER)"
+        )
+        db.execSQL("CREATE TABLE channels (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, unit TEXT)")
+        db.execSQL("CREATE UNIQUE INDEX channels_key ON channels(name, unit)")
+        db.execSQL("CREATE TABLE samples (rec_id INTEGER, ch_id INTEGER, t_ms INTEGER, value REAL)")
+        db.execSQL("CREATE INDEX samples_series ON samples(rec_id, ch_id, t_ms)")
+    }
 
     private fun values(t: TripRow) = ContentValues().apply {
         put("start_ms", t.startMs)

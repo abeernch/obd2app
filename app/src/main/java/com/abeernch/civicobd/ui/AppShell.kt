@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveState
 
-enum class Tab(val label: String) { Drive("Drive"), Sensors("Sensors"), Stats("Stats"), Settings("Settings") }
+enum class Tab(val label: String) { Drive("Drive"), Sensors("Sensors"), Stats("Stats"), Logs("Logs"), Settings("Settings") }
 
 /** Header with the connection light, the current screen, and the bottom tab bar. */
 @Composable
@@ -116,5 +116,6 @@ private fun tabIcon(tab: Tab, color: Color, size: Dp) = when (tab) {
     Tab.Drive -> IconGauge(color, size)
     Tab.Sensors -> IconList(color, size)
     Tab.Stats -> IconBars(color, size)
+    Tab.Logs -> IconWave(color, size)
     Tab.Settings -> IconSliders(color, size)
 }
