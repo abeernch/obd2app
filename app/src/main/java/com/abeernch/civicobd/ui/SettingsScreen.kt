@@ -97,6 +97,23 @@ fun SettingsScreen(
             }
         }
 
+        Section("Demo") {
+            var demo by remember { mutableStateOf(settings.demo) }
+            Text(
+                "Drives a simulated Civic instead of the real adapter, to try the app at home. " +
+                    "Demo drives are recorded like real ones, so delete them in Logs afterwards.",
+                style = Type.label,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            OutlineButton(
+                if (demo) "Stop demo drive" else "Start demo drive",
+                color = if (demo) Palette.Accent else Palette.Value,
+            ) {
+                demo = !demo
+                settings.demo = demo
+            }
+        }
+
         Section("Background") {
             Text(
                 "To connect on its own every time you start the car, the app must be allowed " +

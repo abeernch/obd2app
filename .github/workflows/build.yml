@@ -1,5 +1,7 @@
-# Builds the APK on every push to main and publishes it as the "latest" release,
-# so the newest build can be downloaded straight from the phone.
+# On every push to main:
+#   build   – runs the unit tests, builds the APK and publishes it as the "latest" release.
+#   ui-test – boots an Android emulator, drives the app with the simulated car, and publishes
+#             screenshots and screen recordings as the "ui-test" release.
 name: Build APK
 
 on:
@@ -25,15 +27,15 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build
+      - name: Test and build
         env:
           BUILD_NUMBER: ${{ github.run_number }}
-        # On failure, each compiler error is also printed as a workflow annotation,
+        # On failure, each compiler error or failed test is also printed as a workflow annotation,
         # which can be read through the public API without signing in.
         run: |
           set -o pipefail
-          if ! gradle assembleDebug --no-daemon 2>&1 | tee build.log; then
-            grep -E "^e: |error:|What went wrong" -A2 build.log | head -60 | while IFS= read -r line; do
+          if ! gradle testDebugUnitTest assembleDebug --no-daemon 2>&1 | tee build.log; then
+            grep -E "^e: |error:|What went wrong|FAILED|AssertionError|expected:<|Exception" -A2 build.log | head -80 | while IFS= read -r line; do
               echo "::error::${line}"
             done
             exit 1
@@ -41,6 +43,11 @@ jobs:
 
       - name: Rename APK
         run: cp app/build/outputs/apk/debug/app-debug.apk civic-obd.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish latest release
         env:
@@ -50,3 +57,43 @@ jobs:
           gh release create latest civic-obd.apk \
             --title "Build ${{ github.run_number }}" \
             --notes "Built from ${{ github.sha }}. Download civic-obd.apk on the phone and install it."
+
+  ui-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: app/build/outputs/apk/debug
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: false
+          emulator-boot-timeout: 900
+          script: bash .github/ui-test.sh
+
+      - name: Publish ui-test release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la ui-test || exit 0
+          gh release delete ui-test --yes --cleanup-tag || true
+          gh release create ui-test ui-test/*.png ui-test/*.mp4 ui-test/*.txt ui-test/*.xml \
+            --prerelease --title "UI test ${{ github.run_number }}" \
+            --notes "Emulator run of ${{ github.sha }}."

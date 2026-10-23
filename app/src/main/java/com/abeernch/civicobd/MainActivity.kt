@@ -72,6 +72,22 @@ class MainActivity : ComponentActivity() {
         recordings = Recordings(store)
         LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
 
+        // Automated test hooks: "demo" starts the simulated car, "import_path" imports a CSV from a file path.
+        if (intent.hasExtra("demo")) {
+            settings.demo = intent.getBooleanExtra("demo", false)
+            settings.askedBattery = true
+        }
+        intent.getStringExtra("import_path")?.let { path ->
+            lifecycleScope.launch {
+                val message = withContext(Dispatchers.IO) {
+                    val file = File(path)
+                    importFrom(file.name) { file.bufferedReader(Charsets.UTF_8) }
+                }
+                LiveBus.log("Import: $message")
+                LiveBus.tripsChanged()
+            }
+        }
+
         val needed = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) needed += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= 33) needed += "android.permission.POST_NOTIFICATIONS"
@@ -145,10 +161,12 @@ class MainActivity : ComponentActivity() {
         if (name.lowercase().endsWith(".brc")) {
             return "$name: BRC is Car Scanner's closed format. Export as CSV #1 instead."
         }
+        return importFrom(name) { contentResolver.openInputStream(uri)!!.bufferedReader(Charsets.UTF_8) }
+    }
+
+    private fun importFrom(name: String, open: () -> java.io.BufferedReader): String {
         return try {
-            val log = contentResolver.openInputStream(uri)!!.bufferedReader(Charsets.UTF_8).use {
-                CsvImport.parse(it, name)
-            }
+            val log = open().use { CsvImport.parse(it, name) }
             if (recordings.exists(log.startMs, "Car Scanner")) return "$name: already imported"
             val trip = ImportSummary.trip(log, settings.fuelPrice)
             val tripId = store.insert(trip)

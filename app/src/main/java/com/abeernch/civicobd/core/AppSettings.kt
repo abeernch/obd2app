@@ -31,6 +31,11 @@ class AppSettings(context: Context) {
         get() = prefs.getFloat("fuel_factor", 1.0f).toDouble()
         set(value) = prefs.edit().putFloat("fuel_factor", value.toFloat()).apply()
 
+    /** Replaces the real adapter with a simulated car. For demos and automated tests. */
+    var demo: Boolean
+        get() = prefs.getBoolean("demo", false)
+        set(value) = prefs.edit().putBoolean("demo", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

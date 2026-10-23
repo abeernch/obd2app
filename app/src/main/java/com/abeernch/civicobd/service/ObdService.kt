@@ -28,6 +28,8 @@ import com.abeernch.civicobd.core.TripTotals
 import com.abeernch.civicobd.obd.ClassicTransport
 import com.abeernch.civicobd.obd.ElmSession
 import com.abeernch.civicobd.obd.Pids
+import com.abeernch.civicobd.obd.SimTransport
+import com.abeernch.civicobd.obd.Transport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +90,19 @@ class ObdService : Service() {
         while (true) {
             checkTripEnd(System.currentTimeMillis())
 
+            if (settings.demo) {
+                wasLive = false
+                try {
+                    session(SimTransport(), "demo car")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    LiveBus.log("Demo: ${e.message}")
+                }
+                delay(1_000)
+                continue
+            }
+
             if (bt == null) {
                 setLink(Link.BluetoothOff, "This phone has no Bluetooth")
                 delay(60_000)
@@ -114,7 +129,7 @@ class ObdService : Service() {
 
             wasLive = false
             try {
-                session(device)
+                session(ClassicTransport(device), device.name ?: "adapter")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -143,14 +158,15 @@ class ObdService : Service() {
         return guess
     }
 
-    private suspend fun session(device: BluetoothDevice) {
-        setLink(Link.Connecting, "Connecting to ${device.name ?: "adapter"}")
-        val link = ClassicTransport(device)
+    /** Talks to one adapter until the link drops, or until demo mode is switched on or off. */
+    private suspend fun session(link: Transport, name: String) {
+        val demo = settings.demo
+        setLink(Link.Connecting, "Connecting to $name")
         link.connect()
         try {
             val elm = ElmSession(link) { LiveBus.log(it) }
             initAdapter(elm)
-            while (true) {
+            while (settings.demo == demo) {
                 // Wake the engine computer. It stays silent while the ignition is off.
                 val first = elm.send("0100", timeoutMs = 12_000)
                 if (!first.ok) {
@@ -212,7 +228,7 @@ class ObdService : Service() {
 
     private suspend fun poll(elm: ElmSession, supported: List<Int>, suffix: String) {
         wasLive = true
-        setLink(Link.Live, "Live")
+        setLink(Link.Live, if (settings.demo) "Demo drive" else "Live")
         var cycle = 0
         var fails = 0
         var lastSlowMs = 0L
@@ -220,7 +236,8 @@ class ObdService : Service() {
 
         fun has(code: Int) = supported.isEmpty() || code in supported
 
-        while (true) {
+        val demo = settings.demo
+        while (settings.demo == demo) {
             yield()
             val start = System.currentTimeMillis()
 
