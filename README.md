@@ -21,10 +21,13 @@ No local Android Studio is needed. To build locally, open the folder in Android 
 | `obd/Transport.kt` | Bluetooth link to the adapter |
 | `obd/ElmSession.kt` | One command at a time, waits for the `>` prompt, flags ELM errors |
 | `obd/Pids.kt` | Mode 01 PID formulas and supported-PID decoding |
-| `ui/ProbeViewModel.kt` | Phase 1 probe: connect, initialise, report, poll |
-| `ui/ProbeScreen.kt` | Probe screen |
 | `ui/Components.kt` | Rolling numbers, status light, line icons |
 | `ui/Theme.kt` | Colours and the B612 typeface |
+| `service/ObdService.kt` | Background connection, auto-connect, trips, 1 Hz recording |
+| `core/MetricEngine.kt` | Fuel model, gear, averages, acceleration, power |
+| `core/TripStore.kt`, `core/Recordings.kt` | Local database of trips and recorded samples |
+| `core/CsvFiles.kt` | Car Scanner CSV import, CSV export |
+| `ui/Chart.kt`, `ui/LogsScreen.kt` | Interactive charts: marker, pinch zoom, combined or separate |
 
 ## Phases
 
