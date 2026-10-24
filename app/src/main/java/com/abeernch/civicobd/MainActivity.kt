@@ -116,6 +116,13 @@ class MainActivity : ComponentActivity() {
             settings.demo = intent.getBooleanExtra("demo", false)
             settings.askedBattery = true
         }
+        // Test build only: a full tank two days ago and one 30 L drive since, so the fuel gauge has a level to show.
+        if (BuildConfig.TEST_HOOKS && intent.getBooleanExtra("seed_fuel", false) && fuel.all().isEmpty()) {
+            val day = 86_400_000L
+            val now = System.currentTimeMillis()
+            fuel.add(com.abeernch.civicobd.core.Fillup(timeMs = now - 2 * day, litres = 45.0, price = 378.0, full = true, odometer = null), settings)
+            store.insert(TripRow(startMs = now - day, endMs = now - day + 3_600_000, distanceKm = 420.0, fuelL = 30.0, driveS = 3_600.0))
+        }
         intent.getStringExtra("import_path")?.takeIf { BuildConfig.TEST_HOOKS }?.let { path ->
             lifecycleScope.launch {
                 val message = withContext(Dispatchers.IO) {

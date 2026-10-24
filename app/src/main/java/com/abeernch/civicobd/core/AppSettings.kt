@@ -121,6 +121,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("floating_window", true)
         set(value) = prefs.edit().putBoolean("floating_window", value).apply()
 
+    /** Fuel gauge on the Drive screen: a needle dial (true) or a digital bar (false). */
+    var fuelGaugeAnalog: Boolean
+        get() = prefs.getBoolean("fuel_gauge_analog", true)
+        set(value) = prefs.edit().putBoolean("fuel_gauge_analog", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

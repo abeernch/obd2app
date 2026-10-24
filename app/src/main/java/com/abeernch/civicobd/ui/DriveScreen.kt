@@ -109,7 +109,7 @@ fun DriveScreen(
             userScrollEnabled = pager.settledPage == 0,
             beyondViewportPageCount = 1,
         ) { page ->
-            if (page == 0) Gauges(live, today, tank)
+            if (page == 0) Gauges(live, today, tank, settings)
             else DriveMap(live, settings, locationOk, onSwipeBack = { go(0) })
         }
     }
@@ -162,7 +162,7 @@ private fun ViewSwitch(position: Float, onPick: (Int) -> Unit) {
 // ---- Gauges ----
 
 @Composable
-private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?) {
+private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             // Landscape: the big number on the left, the tiles scroll on the right.
@@ -173,7 +173,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
                 Spacer(Modifier.width(28.dp))
                 Column(Modifier.weight(1.25f).verticalScroll(rememberScrollState())) {
                     Spacer(Modifier.height(6.dp))
-                    GaugeTiles(live, today, tank)
+                    GaugeTiles(live, today, tank, settings)
                 }
             }
         } else {
@@ -185,7 +185,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
             ) {
                 Hero(live)
                 Spacer(Modifier.height(28.dp))
-                GaugeTiles(live, today, tank)
+                GaugeTiles(live, today, tank, settings)
             }
         }
     }
@@ -216,7 +216,7 @@ private fun Hero(live: LiveState) {
 }
 
 @Composable
-private fun GaugeTiles(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?) {
+private fun GaugeTiles(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings) {
     val d = live.derived
     val speed = live.values[0x0D]
     val rpm = live.values[0x0C]
@@ -232,17 +232,20 @@ private fun GaugeTiles(live: LiveState, today: Summary, tank: com.abeernch.civic
     }
     Spacer(Modifier.height(20.dp))
 
+    FuelGauge(tank, settings)
+    Spacer(Modifier.height(20.dp))
+
     Section("This trip") {
         Row(Modifier.fillMaxWidth()) {
             Tile("Distance", fmt(trip.distanceKm, 2), "km", Modifier.weight(1f))
             Tile("Fuel", fmt(trip.fuelL, 2), "L", Modifier.weight(1f))
             Tile("Cost", fmt(trip.fuelL * live.fuelPrice, 0), "PKR", Modifier.weight(1f))
         }
-        if (tank?.leftL != null) {
+        if (tank?.kmPerL != null) {
             Row(Modifier.fillMaxWidth()) {
-                Tile("Range", fmt(tank.rangeKm, 0), "km", Modifier.weight(1f))
-                Tile("Fuel left", fmt(tank.leftL, 0), "L", Modifier.weight(1f))
                 Tile("Since fill", fmt(tank.kmPerL), "km/L", Modifier.weight(1f))
+                Tile("Avg speed", fmt(trip.avgSpeed, 0), "km/h", Modifier.weight(1f))
+                Tile("Max speed", fmt(trip.maxSpeed, 0), "km/h", Modifier.weight(1f))
             }
         }
     }

@@ -82,13 +82,17 @@ burst() {  # burst NAME COUNT
 adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 10 /sdcard/splash.mp4 &
 REC=$!
 sleep 2
-adb shell am start -n $PKG/.MainActivity --ez demo true --es import_path $CSV_PATH
+adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
 burst splash 12
 wait $REC
 adb pull /sdcard/splash.mp4 "$OUT/splash.mp4"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
 sleep 22; shot 03_drive_accelerating
+adb shell input swipe 540 1700 540 900 400; sleep 1.5; shot 03b_fuel_dial
+tap_text "Digital"; sleep 2; shot 03c_fuel_digital
+tap_text "Dial"; sleep 1
+adb shell input swipe 540 700 540 1800 300; sleep 1
 sleep 20; shot 04_drive_cruise
 
 # 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.
