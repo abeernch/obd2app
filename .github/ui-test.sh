@@ -41,6 +41,8 @@ tap_text() {
 }
 
 adb install -r "$APK"
+# Full device log in the background, so a crash leaves a trace even if the emulator goes away.
+adb logcat -c; adb logcat -v time '*:W' > "$OUT/logcat.txt" 2>&1 &
 adb shell pm grant $PKG android.permission.BLUETOOTH_CONNECT || true
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 adb shell pm grant $PKG android.permission.ACCESS_FINE_LOCATION || true

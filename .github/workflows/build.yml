@@ -84,6 +84,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run on emulator
+        # If the emulator dies, end here instead of waiting for the job limit.
+        timeout-minutes: 22
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33

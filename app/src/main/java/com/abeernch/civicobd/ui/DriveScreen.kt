@@ -168,7 +168,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
             // Landscape: the big number on the left, the tiles scroll on the right.
             Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    Hero(live)
+                    Hero(live, scale = 0.75f)
                 }
                 Spacer(Modifier.width(28.dp))
                 Column(Modifier.weight(1.25f).verticalScroll(rememberScrollState())) {
@@ -192,7 +192,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
 }
 
 @Composable
-private fun Hero(live: LiveState) {
+private fun Hero(live: LiveState, scale: Float = 1f) {
     val d = live.derived
     val hero = heroReading(live)
     Column {
@@ -204,15 +204,19 @@ private fun Hero(live: LiveState) {
         )
         if (hero.value == "--") {
             // No reading: a single faint dash instead of two heavy bars.
-            Text("–", style = Type.hero.copy(color = Palette.Label.copy(alpha = 0.45f)))
+            Text("–", style = heroStyle(scale).copy(color = Palette.Label.copy(alpha = 0.45f)))
         } else {
-            RollingNumber(hero.value, Type.hero.copy(color = heroTint))
+            RollingNumber(hero.value, heroStyle(scale).copy(color = heroTint))
         }
         Text(hero.unit, style = Type.label.copy(fontSize = Type.sz(18f)))
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = live.trip.kmPerL)
         Spacer(Modifier.height(12.dp))
     }
+}
+
+private fun heroStyle(scale: Float) = Type.hero.let {
+    if (scale == 1f) it else it.copy(fontSize = it.fontSize * scale, lineHeight = it.lineHeight * scale)
 }
 
 @Composable
@@ -349,7 +353,7 @@ private fun DriveMap(live: LiveState, settings: AppSettings, locationOk: Boolean
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize()) {
                 map(Modifier.weight(1f).fillMaxHeight())
-                MapReadout(live, vertical = true, modifier = Modifier.width(210.dp).fillMaxHeight().then(swipeBack))
+                MapReadout(live, vertical = true, modifier = Modifier.width(250.dp).fillMaxHeight().then(swipeBack))
             }
         } else {
             Column(Modifier.fillMaxSize()) {
@@ -395,7 +399,7 @@ private fun MapReadout(live: LiveState, vertical: Boolean, modifier: Modifier) {
         modifier
             .background(Palette.Surface)
             .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = if (vertical) Arrangement.SpaceEvenly else Arrangement.Top,
+        verticalArrangement = if (vertical) Arrangement.Center else Arrangement.Top,
     ) {
         ShiftCue(live.values[0x0C], live.derived, height = 8.dp)
         Spacer(Modifier.height(8.dp))
@@ -403,8 +407,11 @@ private fun MapReadout(live: LiveState, vertical: Boolean, modifier: Modifier) {
         val sideStyle = Type.value
         if (vertical) {
             Reading(hero.value, hero.unit, heroStyle)
-            Reading(if (running) fmt(speed, 0) else "--", "km/h", sideStyle)
-            Reading(fmt(live.trip.kmPerL), "km/L  trip", sideStyle)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Reading(if (running) fmt(speed, 0) else "--", "km/h", sideStyle, Modifier.weight(1f))
+                Reading(fmt(live.trip.kmPerL), "km/L trip", sideStyle, Modifier.weight(1f))
+            }
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Reading(if (running) fmt(speed, 0) else "--", "km/h", sideStyle, Modifier.weight(1f))

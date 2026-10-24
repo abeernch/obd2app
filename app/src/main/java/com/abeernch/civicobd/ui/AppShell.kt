@@ -81,7 +81,10 @@ fun AppShell(live: LiveState, driveJump: Int = 0, screen: @Composable (Tab) -> U
                     .statusBarsPadding()
                     .navigationBarsPadding()
             ) {
-                Header(live)
+                // In landscape the Drive screen needs every bit of height, so the title bar steps aside there.
+                val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                    android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                if (!(landscape && tab == Tab.Drive)) Header(live)
                 Box(Modifier.weight(1f)) {
                     AnimatedContent(
                         targetState = tab,
