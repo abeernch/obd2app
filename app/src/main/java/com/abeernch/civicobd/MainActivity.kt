@@ -81,6 +81,9 @@ class MainActivity : ComponentActivity() {
     private val pickBackup =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) restoreBackup(uri) }
 
+    // True while the app is shrunk to the floating window over another app.
+    private var inPip by mutableStateOf(false)
+
     // Bumped whenever an appearance setting changes, so the theme is re-applied.
     private var appearanceTick by mutableStateOf(0)
 
@@ -227,6 +230,12 @@ class MainActivity : ComponentActivity() {
                 if (hud) view.keepScreenOn = true
                 onDispose { if (hud) view.keepScreenOn = awake }
             }
+            // The floating window follows the trip: it may open only while one is running.
+            LaunchedEffect(live.trip.active) { updatePip() }
+            if (inPip) {
+                com.abeernch.civicobd.ui.PipView(live)
+                return@setContent
+            }
             if (hud) {
                 HudScreen(live) { hud = false }
                 return@setContent
@@ -234,7 +243,12 @@ class MainActivity : ComponentActivity() {
 
             AppShell(live, driveJump) { tab ->
                 when (tab) {
-                    Tab.Drive -> DriveScreen(live, today, tank, onHud = { hud = true })
+                    Tab.Drive -> DriveScreen(
+                        live, today, tank, settings = settings,
+                        locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                            PackageManager.PERMISSION_GRANTED,
+                        onHud = { hud = true },
+                    )
                     Tab.Sensors -> SensorsScreen(live, today, week, total, onShareLog = ::shareLog, starts = starts)
                     Tab.Stats -> if (fuelOpen) {
                         FuelScreen(
@@ -277,11 +291,45 @@ class MainActivity : ComponentActivity() {
                         locationStatus = locationStatus(),
                         onAppearance = { appearanceTick++ },
                         onBackup = ::backupAll,
+                        onFloatingChanged = ::updatePip,
                         onRestore = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
                     )
                 }
             }
         }
+    }
+
+    // ---- Floating window (picture in picture) ----
+
+    private fun pipSupported() =
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    /** Whether leaving the app now should shrink it to the floating window. */
+    private fun wantsPip() = settings.floatingWindow && LiveBus.state.value.trip.active && pipSupported()
+
+    private fun pipParams(): android.app.PictureInPictureParams {
+        val b = android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9))
+        // Android 12 and newer shrink the app smoothly on the home gesture when this is set.
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(wantsPip()).setSeamlessResizeEnabled(false)
+        return b.build()
+    }
+
+    private fun updatePip() {
+        if (!pipSupported()) return
+        try { setPictureInPictureParams(pipParams()) } catch (_: Exception) { }
+    }
+
+    // Android 8 to 11: shrink when the user presses home or switches apps.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < 31 && wantsPip()) {
+            try { enterPictureInPictureMode(pipParams()) } catch (_: Exception) { }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip = isInPictureInPictureMode
     }
 
     // ---- Backup ----

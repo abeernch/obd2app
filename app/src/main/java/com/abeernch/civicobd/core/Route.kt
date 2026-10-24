@@ -115,6 +115,18 @@ object Route {
         return 2 * r * asin(sqrt(a.coerceIn(0.0, 1.0)))
     }
 
+    fun metres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double = distanceKm(lat1, lon1, lat2, lon2) * 1000
+
+    /** Direction from the first point to the second, in degrees clockwise from north (0 to 360). */
+    fun bearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val p1 = Math.toRadians(lat1)
+        val p2 = Math.toRadians(lat2)
+        val dl = Math.toRadians(lon2 - lon1)
+        val y = sin(dl) * cos(p2)
+        val x = cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl)
+        return (Math.toDegrees(kotlin.math.atan2(y, x)) + 360) % 360
+    }
+
     /** Low and high ends of the colour scale for this metric. */
     fun range(points: List<RoutePoint>, metric: RouteMetric, mode: ScaleMode): Pair<Double, Double> {
         if (mode == ScaleMode.Fixed) return metric.fixedLow to metric.fixedHigh

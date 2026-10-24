@@ -435,6 +435,7 @@ class ObdService : Service() {
         trip = TripTotals(id = id, startMs = now)
         recId = recordings.create(now, "Live", "Drive", id)
         if (!settings.demo) route.start()
+        LiveBus.clearTrail()
         lastSavedMs = now
         LiveBus.log("Trip started")
         LiveBus.tripsChanged()
@@ -477,8 +478,34 @@ class ObdService : Service() {
             add("Speed (GPS)", "km/h", fix.speedKmh)
             add("Altitude (GPS)", "m", fix.altitudeM)
             add("GPS accuracy", "m", fix.accuracyM)
+            publishPosition(fix, d)
         }
         if (pending.size >= 100) flushSamples(now)
+    }
+
+    // Last place the direction of travel was measured from. Bearing only updates after
+    // the car has moved a few metres, so the arrow does not spin while standing still.
+    private var headingFrom: com.abeernch.civicobd.service.Fix? = null
+    private var bearing: Double? = null
+
+    /** Sends the fix and a trail point to the live map on the Drive screen. */
+    private fun publishPosition(fix: com.abeernch.civicobd.service.Fix, d: Derived) {
+        val from = headingFrom
+        if (from == null) {
+            headingFrom = fix
+        } else if (com.abeernch.civicobd.core.Route.metres(from.lat, from.lon, fix.lat, fix.lon) > 4.0) {
+            bearing = com.abeernch.civicobd.core.Route.bearing(from.lat, from.lon, fix.lat, fix.lon)
+            headingFrom = fix
+        }
+        val pos = com.abeernch.civicobd.core.LivePosition(fix.lat, fix.lon, bearing, fix.accuracyM)
+        LiveBus.update { it.copy(position = pos) }
+        val speed = LiveBus.state.value.values[0x0D] ?: 0.0
+        LiveBus.addTrail(
+            com.abeernch.civicobd.core.TrailPoint(
+                fix.lat, fix.lon, d.instantKmL,
+                fuelCut = d.fuelCut || ((d.fuelLph ?: 1.0) < 0.05 && speed > 5),
+            )
+        )
     }
 
     private fun flushSamples(now: Long) {
@@ -530,6 +557,10 @@ class ObdService : Service() {
         }
         recId = -1
         route.stop()
+        headingFrom = null
+        bearing = null
+        LiveBus.clearTrail()
+        LiveBus.update { it.copy(position = null) }
         LiveBus.log("Trip ended: %.1f km".format(trip.distanceKm))
         trip = TripTotals()
         LiveBus.update { it.copy(trip = trip) }

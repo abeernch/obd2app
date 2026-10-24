@@ -44,11 +44,25 @@ data class LiveState(
     val tripsVersion: Int = 0,         // bumps whenever the trip database changes
     val fuelPrice: Double = 390.0,     // PKR per litre, mirrored from settings
     val log: List<String> = emptyList(),
+    val position: LivePosition? = null, // latest GPS fix during a trip
 )
+
+/** Where the car is now. Bearing is the direction of travel in degrees from north, null until it has moved. */
+data class LivePosition(val lat: Double, val lon: Double, val bearing: Double?, val accuracyM: Double?)
+
+/** One second of the trip in progress, for drawing the trail on the live map. */
+data class TrailPoint(val lat: Double, val lon: Double, val kmPerL: Double?, val fuelCut: Boolean)
 
 object LiveBus {
     private val _state = MutableStateFlow(LiveState())
     val state: StateFlow<LiveState> = _state
+
+    // Kept apart from the state above, so the one-second screen updates do not copy the whole trail.
+    private val _trail = MutableStateFlow<List<TrailPoint>>(emptyList())
+    val trail: StateFlow<List<TrailPoint>> = _trail
+
+    fun addTrail(p: TrailPoint) = _trail.update { it + p }
+    fun clearTrail() { _trail.value = emptyList() }
     private val clock = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     fun update(change: (LiveState) -> LiveState) = _state.update(change)

@@ -109,6 +109,18 @@ adb pull /sdcard/tabs.mp4 "$OUT/tabs.mp4"
 sleep 18; shot 05_drive_fuel_cut
 tap_text "HUD"; sleep 3; shot 05b_hud
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
+
+# 4b. Live map on Drive, both views in landscape, then the floating window over the home screen.
+tap_text "Map"; sleep 6; shot 05c_drive_map
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 1; sleep 5; shot 05d_map_landscape
+tap_text "Gauges"; sleep 3; shot 05e_gauges_landscape
+adb shell settings put system user_rotation 0; sleep 4
+tap_text "Map"; sleep 3
+adb shell input keyevent KEYCODE_HOME; sleep 5; shot 05f_floating_window
+adb shell am start -n $PKG/.MainActivity; sleep 4; shot 05g_back_from_window
+tap_text "Gauges"; sleep 2
+
 tap_text "Sensors"; sleep 2; shot 06_sensors_top
 adb shell input swipe 540 1700 540 500 400; sleep 1.5; shot 07_sensors_engine
 scroll_tap "Read codes now"; sleep 4; shot 08b_sensors_faults_read
@@ -123,7 +135,7 @@ tap_text "Settings"; sleep 2
 tap_text "Papaya night"; sleep 2
 
 # 5. Wait for the demo engine-off phase so the trip closes, then statistics and fuel.
-sleep 100
+sleep 62
 tap_text "Stats"; sleep 2; shot 10_stats_week
 tap_text "Fill-ups"; sleep 2; shot 10b_fuel
 tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form

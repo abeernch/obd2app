@@ -44,6 +44,7 @@ fun SettingsScreen(
     locationStatus: String = "",
     onBackup: () -> Unit,
     onRestore: () -> Unit,
+    onFloatingChanged: () -> Unit = {},
 ) {
     var price by remember { mutableStateOf(fmt(settings.fuelPrice, 0)) }
     var factor by remember { mutableStateOf(fmt(settings.fuelFactor, 2)) }
@@ -175,6 +176,13 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Chips(listOf(true, false), driveOnStart, { if (it) "On" else "Off" }, inset = 0.dp) {
                 driveOnStart = it; settings.showDriveOnStart = it
+            }
+            Spacer(Modifier.height(14.dp))
+            var floating by remember { mutableStateOf(settings.floatingWindow) }
+            Text("Small floating window of key numbers when you switch to another app, like Google Maps, during a trip", style = Type.label)
+            Spacer(Modifier.height(8.dp))
+            Chips(listOf(true, false), floating, { if (it) "On" else "Off" }, inset = 0.dp) {
+                floating = it; settings.floatingWindow = it; onFloatingChanged()
             }
         }
 

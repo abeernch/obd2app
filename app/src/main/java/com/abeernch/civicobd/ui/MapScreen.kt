@@ -95,13 +95,13 @@ private val InvertDim = android.graphics.ColorMatrixColorFilter(
 )
 
 /** Applies the tile source; the OpenStreetMap map is colour-inverted in dark mode. */
-private fun MapView.useTiles(dark: Boolean, kind: MapTiles) {
+internal fun MapView.useTiles(dark: Boolean, kind: MapTiles) {
     val wanted = tiles(dark, kind)
     if (tileProvider.tileSource.name() != wanted.name()) setTileSource(wanted)
     overlayManager.tilesOverlay.setColorFilter(if (kind == MapTiles.Osm && dark) InvertDim else null)
 }
 
-private fun newMap(context: Context, dark: Boolean, kind: MapTiles): MapView = MapView(context).apply {
+internal fun newMap(context: Context, dark: Boolean, kind: MapTiles): MapView = MapView(context).apply {
     useTiles(dark, kind)
     setMultiTouchControls(true)
     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
@@ -384,7 +384,7 @@ private fun RouteMap(
     )
 }
 
-private fun Color.toArgbInt(): Int = android.graphics.Color.argb(
+internal fun Color.toArgbInt(): Int = android.graphics.Color.argb(
     (alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt(),
 )
 

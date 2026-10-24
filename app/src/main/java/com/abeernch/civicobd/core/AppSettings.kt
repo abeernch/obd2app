@@ -111,6 +111,16 @@ class AppSettings(context: Context) {
         get() = prefs.getString("map_tiles", "Esri") ?: "Esri"
         set(value) = prefs.edit().putString("map_tiles", value).apply()
 
+    /** Which view the Drive screen opens on: 0 gauges, 1 live map. Remembered from last time. */
+    var driveView: Int
+        get() = prefs.getInt("drive_view", 0)
+        set(value) = prefs.edit().putInt("drive_view", value).apply()
+
+    /** Shrink to a small floating window of key numbers when leaving the app during a trip. */
+    var floatingWindow: Boolean
+        get() = prefs.getBoolean("floating_window", true)
+        set(value) = prefs.edit().putBoolean("floating_window", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()
