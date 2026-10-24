@@ -55,17 +55,7 @@ object Alerts {
     /** "11.0 km · 11.3 km/L · Rs 381 · 24 min", and how it compares with the recent average. */
     fun tripEnded(context: Context, s: TripSummary) {
         val t = s.trip
-        val line = listOfNotNull(
-            "%.1f km".format(t.distanceKm),
-            s.kmPerL?.let { "%.1f km/L".format(it) },
-            "Rs %,d".format(t.cost.toLong()),
-            "%d min".format(s.minutes.toInt()),
-        ).joinToString("  ·  ")
-        val more = listOfNotNull(
-            s.versusAverage?.let { "Economy $it (%.1f km/L).".format(s.averageKmL) },
-            s.avgSpeed?.let { "Average %.0f km/h, top %.0f km/h.".format(it, t.maxSpeed) },
-            if (t.idleS > 60) "Standing %d min.".format((t.idleS / 60).toInt()) else null,
-        ).joinToString(" ")
+        val (line, more) = s.notificationText()
         val n = Notification.Builder(context, TRIPS)
             .setSmallIcon(R.drawable.ic_note)
             .setContentTitle("Drive finished")

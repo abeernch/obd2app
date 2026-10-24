@@ -389,7 +389,9 @@ class ObdService : Service() {
             )
         }
         LiveBus.log("Fault codes: stored ${stored.size}, pending ${pending.size}")
-        if (!settings.demo) Alerts.codes(this, settings, stored, pending, LiveBus.state.value.monitors?.mil)
+        if (!settings.demo) {
+            try { Alerts.codes(this, settings, stored, pending, LiveBus.state.value.monitors?.mil) } catch (e: Exception) { LiveBus.log("Alert failed: ${e.message}") }
+        }
     }
 
     private suspend fun readVoltage(elm: ElmSession): Double? {
@@ -446,7 +448,7 @@ class ObdService : Service() {
         // A check-engine light that comes on mid-drive is announced straight away.
         if (!settings.demo && bit(a, 7) && !settings.milWasOn) {
             val d = Diagnostics.state.value
-            Alerts.codes(this, settings, d.stored, d.pending, true)
+            try { Alerts.codes(this, settings, d.stored, d.pending, true) } catch (e: Exception) { LiveBus.log("Alert failed: ${e.message}") }
         }
     }
 
@@ -642,8 +644,12 @@ class ObdService : Service() {
             store.delete(trip.id)
         } else {
             // The summary as soon as the car is parked, then any service job the drive made due.
-            store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store)) }
-            Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
+            try {
+                store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store)) }
+                Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
+            } catch (e: Exception) {
+                LiveBus.log("Summary failed: ${e.message}")
+            }
         }
         recId = -1
         lastTickMs = 0L

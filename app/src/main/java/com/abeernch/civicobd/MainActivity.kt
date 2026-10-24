@@ -439,7 +439,7 @@ class MainActivity : ComponentActivity() {
             recordings.add(recId, log.samples)
             recordings.setEnd(recId, log.endMs)
             val channels = log.samples.map { it.name }.distinct().size
-            "$name: %.1f km, %d parameters imported".format(trip.distanceKm, channels)
+            name + ": " + "%.1f km, %d parameters imported".format(trip.distanceKm, channels)
         } catch (e: Exception) {
             "$name: could not import (${e.message})"
         }

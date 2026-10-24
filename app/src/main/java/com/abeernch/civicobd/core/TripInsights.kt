@@ -22,6 +22,26 @@ data class TripSummary(
             }
         }
 
+    /**
+     * The notification's short line and its longer text. Numbers are formatted one at a time and
+     * joined as plain strings, so a "%" inside a phrase can never be read as a format code.
+     */
+    fun notificationText(): Pair<String, String> {
+        val t = trip
+        val line = listOfNotNull(
+            "%.1f km".format(t.distanceKm),
+            kmPerL?.let { "%.1f km/L".format(it) },
+            "Rs %,d".format(t.cost.toLong()),
+            "%d min".format(minutes.toInt()),
+        ).joinToString("  ·  ")
+        val more = listOfNotNull(
+            versusAverage?.let { v -> "Economy " + v + " (" + "%.1f".format(averageKmL) + " km/L)." },
+            avgSpeed?.let { "Average %.0f km/h, top %.0f km/h.".format(it, t.maxSpeed) },
+            if (t.idleS > 60) "Standing %d min.".format((t.idleS / 60).toInt()) else null,
+        ).joinToString(" ")
+        return line to more
+    }
+
     companion object {
         fun of(trip: TripRow, store: TripStore): TripSummary {
             val before = store.between(trip.startMs - 30L * 86_400_000, trip.startMs - 1)

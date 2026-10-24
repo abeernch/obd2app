@@ -186,7 +186,7 @@ private fun DriveCard(t: TripRow, source: String?, onClick: () -> Unit) {
                 }
             }
             Text(
-                "${clockFmt.format(Date(t.startMs))}  ·  ${fmt(t.distanceKm, 1)} km  ·  $minutes min  ·  Rs %,d".format(t.cost.toLong()),
+                "${clockFmt.format(Date(t.startMs))}  ·  ${fmt(t.distanceKm, 1)} km  ·  $minutes min  ·  Rs " + "%,d".format(t.cost.toLong()),
                 style = Type.label,
             )
         }

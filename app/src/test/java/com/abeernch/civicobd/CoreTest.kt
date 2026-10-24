@@ -175,6 +175,21 @@ class CoreTest {
         it
     }
 
+    /** Build 32 crashed here: "12% better" was passed through String.format, which read "% b" as a code. */
+    @Test
+    fun tripSummaryTextWithPercentDoesNotCrash() {
+        val t = com.abeernch.civicobd.core.TripRow(
+            id = 1, startMs = 0, endMs = 24 * 60_000, distanceKm = 11.0, fuelL = 0.98, cost = 381.0,
+            driveS = 1260.0, idleS = 90.0, maxSpeed = 65.0,
+        )
+        val better = com.abeernch.civicobd.core.TripSummary(t, averageKmL = 10.0)
+        val (line, more) = better.notificationText()
+        assertEquals("11.0 km  ·  11.2 km/L  ·  Rs 381  ·  24 min", line)
+        assertTrue(more, more.startsWith("Economy 12% better than your average (10.0 km/L)."))
+        val worse = com.abeernch.civicobd.core.TripSummary(t, averageKmL = 14.0).notificationText().second
+        assertTrue(worse, worse.contains("% below your average"))
+    }
+
     @Test
     fun serviceDueByDistanceOrTimeWhicheverFirst() {
         val day = 86_400_000L
