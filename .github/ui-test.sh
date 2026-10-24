@@ -165,8 +165,6 @@ tap_text "Speed"; sleep 2; shot 24_route_speed
 adb shell input swipe 540 2000 540 1500 400; sleep 1.5; shot 25_route_lower
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
-tap_text "Fuel map of all drives"; sleep 8; shot 26_fuel_map
-adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
 # 7. Connection log from the app itself.
 tap_text "Sensors"; sleep 1
@@ -174,4 +172,7 @@ for i in 1 2 3 4 5 6; do adb shell input swipe 540 1800 540 300 300; sleep 0.5; 
 shot 19_sensors_log
 adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" 2>&1 || true
 adb shell dumpsys activity services $PKG | head -40 > "$OUT/service_state.txt" || true
+# Last: the all-drives fuel map, the heaviest screen for a GPU-less emulator. Everything above is saved first.
+tap_text "Logs"; sleep 2
+tap_text "Fuel map of all drives"; sleep 8; shot 26_fuel_map
 echo "done"
