@@ -75,7 +75,12 @@ fun DriveScreen(
         }
         Spacer(Modifier.height(10.dp))
         val heroTint by androidx.compose.animation.animateColorAsState(heroColor, Motion.fade(400), label = "hero")
-        RollingNumber(heroValue, Type.hero.copy(color = heroTint))
+        if (heroValue == "--") {
+            // No reading: a single faint dash instead of two heavy bars.
+            Text("–", style = Type.hero.copy(color = Palette.Label.copy(alpha = 0.45f)))
+        } else {
+            RollingNumber(heroValue, Type.hero.copy(color = heroTint))
+        }
         Text(heroUnit, style = Type.label.copy(fontSize = Type.sz(18f)))
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = trip.kmPerL)
