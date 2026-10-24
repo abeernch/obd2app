@@ -143,8 +143,9 @@ tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
 tap_text "Settings"; sleep 2
 tap_text "Papaya night"; sleep 2
 
-# 5. Wait for the demo engine-off phase so the trip closes (60 s parked), then the summary.
-sleep 62
+# 5. Park the car: switching the demo off stops the engine; 60 s later the trip ends with a summary.
+tap_text "Settings"; sleep 2
+scroll_tap "Stop demo drive"; sleep 75
 adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
 adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked
@@ -154,7 +155,7 @@ adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
 scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel
 tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
-adb shell input keyevent KEYCODE_BACK; sleep 1.5
+# One back closes the form; the tab bar takes it from there (two backs could leave the app).
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
 # 6. Trips: the list, an imported drive's page, then the demo drive's page and route map.
