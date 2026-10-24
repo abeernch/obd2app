@@ -64,11 +64,61 @@ fun SettingsScreen(
                 it.toDoubleOrNull()?.takeIf { f -> f in 0.5..2.0 }?.let { f -> settings.fuelFactor = f }
             }
             Text(
-                "After a full refill, divide the litres the pump added by the litres this app " +
-                    "counted since the previous full refill. Multiply the current factor by that.",
+                "The factor corrects itself each time you log a full tank in Stats > Fuel tank. " +
+                    "Change it here only to undo a bad calibration.",
                 style = Type.label,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            var tank by remember { mutableStateOf(fmt(settings.tankL, 0)) }
+            NumberField("Tank size", tank, "L") {
+                tank = it
+                it.toDoubleOrNull()?.takeIf { t -> t in 20.0..120.0 }?.let { t -> settings.tankL = t; onChanged() }
+            }
+        }
+
+        Section("Car") {
+            var odo by remember { mutableStateOf(settings.odometerKm?.let { fmt(it, 0) } ?: "") }
+            var interval by remember { mutableStateOf(fmt(settings.oilIntervalKm, 0)) }
+            var oilAt by remember { mutableStateOf(settings.oilChangedAtKm?.let { fmt(it, 0) } ?: "") }
+            NumberField("Odometer now", odo, "km") {
+                odo = it
+                it.toDoubleOrNull()?.let { km ->
+                    settings.odometerKm = km
+                    settings.odometerAtMs = System.currentTimeMillis()
+                    onChanged()
+                }
+            }
+            NumberField("Oil change every", interval, "km") {
+                interval = it
+                it.toDoubleOrNull()?.takeIf { km -> km >= 500 }?.let { km -> settings.oilIntervalKm = km; onChanged() }
+            }
+            NumberField("Last oil change at", oilAt, "km") {
+                oilAt = it
+                settings.oilChangedAtKm = it.toDoubleOrNull()
+                onChanged()
+            }
+            Text(
+                "Enter the odometer once. Every logged trip is added to it, so the reminder stays current.",
+                style = Type.label,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+
+        Section("While driving") {
+            var screenOn by remember { mutableStateOf(settings.keepScreenOn) }
+            var driveOnStart by remember { mutableStateOf(settings.showDriveOnStart) }
+            Spacer(Modifier.height(8.dp))
+            Text("Keep the screen on during a trip", style = Type.label)
+            Spacer(Modifier.height(8.dp))
+            Chips(listOf(true, false), screenOn, { if (it) "On" else "Off" }, inset = 0.dp) {
+                screenOn = it; settings.keepScreenOn = it
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Jump to the Drive screen when a trip starts", style = Type.label)
+            Spacer(Modifier.height(8.dp))
+            Chips(listOf(true, false), driveOnStart, { if (it) "On" else "Off" }, inset = 0.dp) {
+                driveOnStart = it; settings.showDriveOnStart = it
+            }
         }
 
         Section("OBD adapter") {
@@ -192,7 +242,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun NumberField(name: String, value: String, unit: String, onChange: (String) -> Unit) {
+fun NumberField(name: String, value: String, unit: String, onChange: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(name, style = Type.label.copy(fontSize = Type.body.fontSize), modifier = Modifier.weight(1f))
         BasicTextField(

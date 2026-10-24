@@ -8,6 +8,15 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalView
+import com.abeernch.civicobd.core.Car
+import com.abeernch.civicobd.core.CarStatus
+import com.abeernch.civicobd.core.FuelLog
+import com.abeernch.civicobd.core.Tank
+import com.abeernch.civicobd.ui.CarCard
+import com.abeernch.civicobd.ui.FuelScreen
+import com.abeernch.civicobd.ui.TankCard
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
@@ -63,6 +72,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var settings: AppSettings
     private lateinit var store: TripStore
     private lateinit var recordings: Recordings
+    private lateinit var fuel: FuelLog
+
+    // Bumped when fill-ups or car settings change, so tank and service figures refresh.
+    private var fuelTick by mutableStateOf(0)
 
     private val pickBackup =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) restoreBackup(uri) }
@@ -84,6 +97,7 @@ class MainActivity : ComponentActivity() {
         settings = AppSettings(this)
         store = TripStore.get(this)
         recordings = Recordings(store)
+        fuel = FuelLog(store)
         LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
 
         // Automated test hooks: "demo" starts the simulated car, "import_path" imports a CSV from a file path.
@@ -165,11 +179,54 @@ class MainActivity : ComponentActivity() {
             val week = withLive(weekRows)
             val total = withLive(allRows)
 
-            AppShell(live) { tab ->
+            // Tank, range, odometer and oil reminder, refreshed as trips are saved.
+            var tank by remember { mutableStateOf<Tank?>(null) }
+            var car by remember { mutableStateOf(CarStatus(null, null)) }
+            LaunchedEffect(live.tripsVersion, fuelTick) {
+                withContext(Dispatchers.IO) {
+                    val t = live.trip
+                    tank = fuel.tank(settings.tankL, if (t.active) t.fuelL else 0.0, if (t.active) t.distanceKm else 0.0)
+                    car = Car.status(settings, store, if (live.trip.active) live.trip.distanceKm else 0.0)
+                }
+            }
+            var fuelOpen by remember { mutableStateOf(false) }
+            var starts by remember { mutableStateOf(emptyList<com.abeernch.civicobd.core.CarEvent>()) }
+            LaunchedEffect(live.tripsVersion) {
+                starts = withContext(Dispatchers.IO) { com.abeernch.civicobd.core.Events(store).recent("start") }
+            }
+
+            // Keep the screen awake while a trip runs, if chosen.
+            val view = LocalView.current
+            val awake = live.trip.active && settings.keepScreenOn
+            DisposableEffect(awake) {
+                view.keepScreenOn = awake
+                onDispose { view.keepScreenOn = false }
+            }
+            // Jump to the Drive screen when a trip starts, if chosen.
+            var driveJump by remember { mutableStateOf(0) }
+            LaunchedEffect(live.trip.id) {
+                if (live.trip.active && settings.showDriveOnStart) driveJump++
+            }
+
+            AppShell(live, driveJump) { tab ->
                 when (tab) {
-                    Tab.Drive -> DriveScreen(live, today)
-                    Tab.Sensors -> SensorsScreen(live, today, week, total, onShareLog = ::shareLog)
-                    Tab.Stats -> StatsScreen(store, live.tripsVersion, onExportTrips = ::exportTrips)
+                    Tab.Drive -> DriveScreen(live, today, tank)
+                    Tab.Sensors -> SensorsScreen(live, today, week, total, onShareLog = ::shareLog, starts = starts)
+                    Tab.Stats -> if (fuelOpen) {
+                        FuelScreen(
+                            fuel = fuel, settings = settings, tank = tank, version = fuelTick,
+                            onBack = { fuelOpen = false },
+                            onChanged = {
+                                fuelTick++
+                                LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
+                            },
+                        )
+                    } else {
+                        StatsScreen(store, live.tripsVersion, onExportTrips = ::exportTrips) {
+                            TankCard(tank) { fuelOpen = true }
+                            CarCard(car)
+                        }
+                    }
                     Tab.Logs -> LogsScreen(
                         recordings = recordings,
                         version = live.tripsVersion,
@@ -185,7 +242,10 @@ class MainActivity : ComponentActivity() {
                     Tab.Settings -> SettingsScreen(
                         settings = settings,
                         paired = pairedDevices(),
-                        onChanged = { LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) } },
+                        onChanged = {
+                            fuelTick++
+                            LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
+                        },
                         onBattery = ::requestBatteryExemption,
                         onAppearance = { appearanceTick++ },
                         onBackup = ::backupAll,

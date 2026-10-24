@@ -20,6 +20,7 @@ class SimTransport : Transport {
     private var readyAt = 0L
     private val lock = Object()
     private var open = false
+    private var codeStored = true
 
     override val input: InputStream = object : InputStream() {
         override fun available(): Int = synchronized(lock) {
@@ -73,6 +74,20 @@ class SimTransport : Transport {
                 else -> "OK"
             }
         }
+        // Fault codes: one harmless stored code (P0456, small evaporative leak) until it is cleared.
+        when (cmd) {
+            "03" -> return if (codeStored) "430456000000" else "430000000000"
+            "07" -> return "470000000000"
+            "04" -> { codeStored = false; return "44" }
+        }
+        // Mode 02 freeze frame: answer like Mode 01 with the frame number, from the current state.
+        if (cmd.length == 6 && cmd.startsWith("02") && cmd.endsWith("00")) {
+            if (!codeStored) return "NO DATA"
+            val pid = cmd.substring(2, 4)
+            if (pid == "02") return "4202000456"
+            val asMode1 = respond("01$pid")
+            return if (asMode1.startsWith("41")) "42" + asMode1.substring(2, 4) + "00" + asMode1.substring(4) else asMode1
+        }
         // Mode 01 request, with or without the trailing "1"
         val body = if (cmd.length == 5 && cmd.endsWith("1")) cmd.dropLast(1) else cmd
         if (body.length != 4 || !body.startsWith("01")) return "?"
@@ -80,7 +95,7 @@ class SimTransport : Transport {
         val s = state()
         val data: List<Int> = when (pid) {
             0x00 -> supportedMask()
-            0x01 -> listOf(0x00, 0x07, 0xE5, 0x00)
+            0x01 -> listOf(if (codeStored) 0x01 else 0x00, 0x07, 0xE5, 0x00)
             0x04 -> listOf((s.load * 255 / 100).roundToInt())
             0x05 -> listOf((s.coolant + 40).roundToInt())
             0x0B -> listOf(s.map.roundToInt())

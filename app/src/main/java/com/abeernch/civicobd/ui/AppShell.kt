@@ -56,8 +56,9 @@ enum class Tab(val label: String) { Drive("Drive"), Sensors("Sensors"), Stats("S
  * the current screen, and the bottom tab bar with a sliding orange indicator.
  */
 @Composable
-fun AppShell(live: LiveState, screen: @Composable (Tab) -> Unit) {
+fun AppShell(live: LiveState, driveJump: Int = 0, screen: @Composable (Tab) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.Drive) }
+    androidx.compose.runtime.LaunchedEffect(driveJump) { if (driveJump > 0) tab = Tab.Drive }
     var splashDone by rememberSaveable { mutableStateOf(false) }
     // The app is composed from the first frame, hidden under the splash, so it is ready
     // the moment the splash starts to leave. It then rises into place while the splash fades:

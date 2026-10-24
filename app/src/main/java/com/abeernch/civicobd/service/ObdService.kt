@@ -17,6 +17,9 @@ import com.abeernch.civicobd.MainActivity
 import com.abeernch.civicobd.R
 import com.abeernch.civicobd.core.AppSettings
 import com.abeernch.civicobd.core.Derived
+import com.abeernch.civicobd.core.DiagRequest
+import com.abeernch.civicobd.core.Diagnostics
+import com.abeernch.civicobd.core.Events
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveBus
 import com.abeernch.civicobd.core.MetricEngine
@@ -59,6 +62,7 @@ class ObdService : Service() {
     private var wasLive = false
 
     private lateinit var recordings: com.abeernch.civicobd.core.Recordings
+    private lateinit var events: Events
     private var recId = -1L
     private var lastSampleMs = 0L
     private val pending = ArrayList<com.abeernch.civicobd.core.Sample>()
@@ -70,6 +74,7 @@ class ObdService : Service() {
         settings = AppSettings(this)
         store = TripStore.get(this)
         recordings = com.abeernch.civicobd.core.Recordings(store)
+        events = Events(store)
         createChannel()
         startForeground(NOTE_ID, note("Waiting for the car"))
         scope.launch { mainLoop() }
@@ -221,6 +226,7 @@ class ObdService : Service() {
             )
         }
         readMonitors(elm, suffix)
+        readDiagnostics(elm, suffix)
         return supported to suffix
     }
 
@@ -280,8 +286,11 @@ class ObdService : Service() {
                 lastMonitorsMs = start
                 readMonitors(elm, suffix)
             }
+            // Fault-code requests from the screens run between polling cycles.
+            Diagnostics.requests.tryReceive().getOrNull()?.let { runDiagnostics(elm, it, suffix) }
 
             val now = System.currentTimeMillis()
+            watchStart(elm, values[0x0C] ?: 0.0, now)
             val derived = metrics.step(values, now, settings.fuelFactor)
             recordTrip(values, derived, now)
 
@@ -293,10 +302,86 @@ class ObdService : Service() {
         }
     }
 
-    private suspend fun readVoltage(elm: ElmSession) {
+    // ---- Fault codes ----
+
+    private suspend fun runDiagnostics(elm: ElmSession, request: DiagRequest, suffix: String) {
+        if (request == DiagRequest.Clear) {
+            val reply = elm.send("04", timeoutMs = 5000)
+            val ok = reply.lines.any { it.startsWith("44") }
+            LiveBus.log(if (ok) "Fault codes cleared" else "Clear failed: ${reply.error ?: reply.text}")
+            events.add("dtc_clear", null, null, if (ok) "cleared" else "failed")
+            readDiagnostics(elm, suffix)
+            Diagnostics.publish { it.copy(message = if (ok) "Codes cleared. The check-engine light goes off now." else "The car refused to clear the codes.") }
+            readMonitors(elm, suffix)
+            return
+        }
+        readDiagnostics(elm, suffix)
+    }
+
+    /** Stored and pending codes, plus the freeze frame when a code is stored. */
+    private suspend fun readDiagnostics(elm: ElmSession, suffix: String) {
+        val stored = elm.send("03", timeoutMs = 4000).let { if (it.error == "NO DATA") emptyList() else Diagnostics.parseCodes(it.lines, 3) }
+        val pending = elm.send("07", timeoutMs = 4000).let { if (it.error == "NO DATA") emptyList() else Diagnostics.parseCodes(it.lines, 7) }
+        var frame = emptyMap<Int, Double>()
+        var frameCode: String? = null
+        if (stored.isNotEmpty()) {
+            frameCode = Pids.dataBytes(elm.send("020200", timeoutMs = 2000).let {
+                // Mode 02 replies start with 42 and repeat the PID and frame number: 42 02 00 AA BB
+                it.copy(lines = it.lines.map { l -> l.replace(" ", "").replaceFirst("420200", "4102") })
+            }, 0x02, 2)?.let { b -> Diagnostics.decode("%02X%02X".format(b[0], b[1]))?.code }
+            val values = HashMap<Int, Double>()
+            for (code in listOf(0x04, 0x05, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11)) {
+                val pid = Pids.BY_CODE[code] ?: continue
+                val reply = elm.send("02%02X00".format(code), timeoutMs = 1500)
+                val asMode1 = reply.copy(lines = reply.lines.map { l ->
+                    l.replace(" ", "").replaceFirst("42%02X00".format(code), "41%02X".format(code))
+                })
+                Pids.decode(asMode1, pid)?.let { values[code] = it }
+            }
+            frame = values
+        }
+        val known = Diagnostics.state.value.stored.map { it.code }.toSet()
+        stored.filter { it.code !in known }.forEach { events.add("dtc", null, null, it.code) }
+        Diagnostics.publish {
+            it.copy(
+                stored = stored, pending = pending, freezeFrame = frame, freezeCode = frameCode,
+                readAtMs = System.currentTimeMillis(), busy = false,
+                message = if (stored.isEmpty() && pending.isEmpty()) "No fault codes." else it.message,
+            )
+        }
+        LiveBus.log("Fault codes: stored ${stored.size}, pending ${pending.size}")
+    }
+
+    private suspend fun readVoltage(elm: ElmSession): Double? {
         val text = elm.send("ATRV").text
         val volts = text.removeSuffix("V").trim().toDoubleOrNull()
         if (volts != null) LiveBus.update { it.copy(voltage = volts) }
+        return volts
+    }
+
+    // ---- Battery at engine start ----
+    // With the ignition on and the engine off, the voltage is sampled every cycle. When the engine
+    // starts, the resting voltage (before cranking) and the lowest voltage while cranking are saved.
+    private val voltHistory = ArrayDeque<Pair<Long, Double>>()
+    private var engineWasOff = false
+
+    private suspend fun watchStart(elm: ElmSession, rpm: Double, now: Long) {
+        if (rpm < 1) {
+            readVoltage(elm)?.let { voltHistory.addLast(now to it) }
+            while (voltHistory.isNotEmpty() && now - voltHistory.first().first > 10_000) voltHistory.removeFirst()
+            engineWasOff = true
+            return
+        }
+        if (engineWasOff && voltHistory.isNotEmpty()) {
+            val before = voltHistory.filter { now - it.first > 3_000 }.map { it.second }
+            val rest = (before.ifEmpty { voltHistory.map { it.second } }).maxOrNull()
+            val crank = voltHistory.filter { now - it.first <= 4_000 }.minOfOrNull { it.second }
+            events.add("start", rest, crank?.takeIf { rest == null || it < rest - 0.3 }, null)
+            LiveBus.log("Engine start: rest ${rest ?: "--"} V, crank ${crank ?: "--"} V")
+            LiveBus.tripsChanged()
+        }
+        voltHistory.clear()
+        engineWasOff = false
     }
 
     /** Mode 01 PID 01: check-engine light, fault code count and readiness monitors. */
@@ -402,11 +487,22 @@ class ObdService : Service() {
         )
         lastSavedMs = System.currentTimeMillis()
         LiveBus.tripsChanged()
+        refreshWidget(force = false)
     }
 
     /** Ends the trip after 90 s without the engine running, whether the link is up or not. */
     private fun checkTripEnd(now: Long) {
         if (trip.active && now - lastRunningMs > 90_000) closeTrip(lastRunningMs)
+    }
+
+    private var lastWidgetMs = 0L
+
+    /** Pushes fresh numbers to the home-screen widget, at most once a minute while driving. */
+    private fun refreshWidget(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastWidgetMs < 60_000) return
+        lastWidgetMs = now
+        scope.launch { com.abeernch.civicobd.widget.TripWidget.refresh(this@ObdService) }
     }
 
     private fun closeTrip(endMs: Long) {
@@ -423,6 +519,7 @@ class ObdService : Service() {
         trip = TripTotals()
         LiveBus.update { it.copy(trip = trip) }
         LiveBus.tripsChanged()
+        refreshWidget(force = true)
     }
 
     // ---- Status and notification ----

@@ -31,7 +31,7 @@ import com.abeernch.civicobd.core.Summary
  * Everything else sits in fixed places below it.
  */
 @Composable
-fun DriveScreen(live: LiveState, today: Summary) {
+fun DriveScreen(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank? = null) {
     val d = live.derived
     val speed = live.values[0x0D]
     val rpm = live.values[0x0C]
@@ -80,6 +80,13 @@ fun DriveScreen(live: LiveState, today: Summary) {
                 Tile("Distance", fmt(trip.distanceKm, 2), "km", Modifier.weight(1f))
                 Tile("Fuel", fmt(trip.fuelL, 2), "L", Modifier.weight(1f))
                 Tile("Cost", fmt(trip.fuelL * live.fuelPrice, 0), "PKR", Modifier.weight(1f))
+            }
+            if (tank?.leftL != null) {
+                Row(Modifier.fillMaxWidth()) {
+                    Tile("Range", fmt(tank.rangeKm, 0), "km", Modifier.weight(1f))
+                    Tile("Fuel left", fmt(tank.leftL, 0), "L", Modifier.weight(1f))
+                    Tile("Since fill", fmt(tank.kmPerL), "km/L", Modifier.weight(1f))
+                }
             }
         }
         Spacer(Modifier.height(20.dp))

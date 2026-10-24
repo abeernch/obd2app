@@ -45,7 +45,7 @@ data class Summary(
 
 /** Local SQLite database of trips. Nothing leaves the phone. */
 class TripStore private constructor(context: Context) :
-    SQLiteOpenHelper(context, "trips.db", null, 2) {
+    SQLiteOpenHelper(context, "trips.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -55,10 +55,25 @@ class TripStore private constructor(context: Context) :
         )
         db.execSQL("CREATE INDEX trips_start ON trips(start_ms)")
         createRecordingTables(db)
+        createFuelAndEventTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createRecordingTables(db)
+        if (oldVersion < 3) createFuelAndEventTables(db)
+    }
+
+    /** Version 3: fill-ups (see Fuel.kt) and car events such as engine starts and fault codes (see Events.kt). */
+    private fun createFuelAndEventTables(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE fillups (id INTEGER PRIMARY KEY AUTOINCREMENT, time_ms INTEGER, litres REAL, " +
+                "price REAL, full INTEGER, odometer REAL, app_litres REAL, factor_after REAL)"
+        )
+        db.execSQL(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, time_ms INTEGER, type TEXT, " +
+                "a REAL, b REAL, text TEXT)"
+        )
+        db.execSQL("CREATE INDEX events_type ON events(type, time_ms)")
     }
 
     /** Version 2: time series recordings, live or imported. See Recordings.kt. */

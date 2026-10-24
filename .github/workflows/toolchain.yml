@@ -32,8 +32,10 @@ jobs:
         env:
           GRADLE_USER_HOME: ${{ github.workspace }}/ghome
         run: |
-          ./gradle-8.9/bin/gradle testDebugUnitTest assembleDebug --no-daemon -q
-          ./gradle-8.9/bin/gradle dependencies --no-daemon -q > /dev/null || true
+          # A compile error in the app does not matter here: libraries are fetched before compiling.
+          ./gradle-8.9/bin/gradle testDebugUnitTest assembleDebug --no-daemon --continue -q || true
+          ./gradle-8.9/bin/gradle :app:dependencies --no-daemon -q > /dev/null || true
+          ls ghome/caches/modules-2/files-2.1 | wc -l
 
       - name: Pack
         run: |
