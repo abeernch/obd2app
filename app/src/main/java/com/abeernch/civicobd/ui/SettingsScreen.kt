@@ -113,8 +113,8 @@ fun SettingsScreen(
                     it.mode == Appearance.mode(settings) && it.size == Appearance.size(settings) &&
                         it.accent == Appearance.accent(settings) && it.face == Appearance.face(settings)
                 }
-                Chips(Preset.entries.toList(), current, { it.label }, inset = 0.dp) {
-                    Appearance.applyPreset(settings, it); changed()
+                Chips<Preset?>(Preset.entries.toList(), current, { it?.label ?: "" }, inset = 0.dp) { p ->
+                    if (p != null) { Appearance.applyPreset(settings, p); changed() }
                 }
                 OptionRow("Mode") {
                     Chips(Mode.entries.toList(), Appearance.mode(settings), { it.label }, inset = 0.dp) {
