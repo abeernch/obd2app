@@ -56,6 +56,16 @@ adb push .github/sample_carscanner.csv /data/local/tmp/2026-10-22_09-00-39.csv
 adb shell "cat /data/local/tmp/2026-10-22_09-00-39.csv | run-as $PKG sh -c 'mkdir -p files && cat > files/2026-10-22_09-00-39.csv'"
 CSV_PATH=/data/data/$PKG/files/2026-10-22_09-00-39.csv
 
+# Scrolls down (up to 8 swipes) until the text is on screen, then taps it.
+scroll_tap() {
+  for n in 1 2 3 4 5 6 7 8; do
+    xy=$(pos_text "$1")
+    if [ -n "$xy" ]; then adb shell input tap $xy; echo "tap '$1' at $xy after $n looks"; return 0; fi
+    adb shell input swipe 540 1600 540 900 300; sleep 0.8
+  done
+  echo "NOT FOUND after scrolling: '$1'"; return 1
+}
+
 # Finds an element's centre without tapping it.
 pos_text() {
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
@@ -101,12 +111,9 @@ tap_text "HUD"; sleep 3; shot 05b_hud
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Sensors"; sleep 2; shot 06_sensors_top
 adb shell input swipe 540 1700 540 500 400; sleep 1.5; shot 07_sensors_engine
-for i in 1 2 3; do adb shell input swipe 540 1700 540 400 300; sleep 0.5; done
-sleep 1; shot 08_sensors_faults
-tap_text "Read codes now"; sleep 4; shot 08b_sensors_faults_read
+scroll_tap "Read codes now"; sleep 4; shot 08b_sensors_faults_read
 adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_sensors_battery
 tap_text "Settings"; sleep 2; shot 09_settings_top
-adb shell input swipe 540 1800 540 300 400; sleep 1.5; shot 09b_settings_appearance
 tap_text "Daylight"; sleep 2; shot 09c_settings_light
 tap_text "Drive"; sleep 2; shot 09d_drive_light
 tap_text "Settings"; sleep 2
@@ -132,9 +139,10 @@ tap_text "One plot"; sleep 2; shot 16_recording_combined
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Live" 0; sleep 3; shot 18_recording_demo
 tap_text "Route map"; sleep 8; shot 20_route_map
-# Press and hold on the middle of the map, then slide: the marker should follow the route.
-adb shell input swipe 540 900 540 902 1500; sleep 1; shot 21_route_hold
-adb shell input swipe 540 900 700 1000 2500; sleep 1; shot 22_route_scrub
+# Press and hold on the map, then slide: the marker should snap to the route and follow it.
+adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
+adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
+tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
 tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
 tap_text "Speed"; sleep 2; shot 24_route_speed
 adb shell input swipe 540 2000 540 1500 400; sleep 1.5; shot 25_route_lower

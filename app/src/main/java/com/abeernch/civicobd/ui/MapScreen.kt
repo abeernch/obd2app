@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -48,7 +49,9 @@ import com.abeernch.civicobd.core.Route
 import com.abeernch.civicobd.core.RouteMetric
 import com.abeernch.civicobd.core.RoutePoint
 import com.abeernch.civicobd.core.ScaleMode
-import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
@@ -58,17 +61,48 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Dark and light street maps from CARTO, built on OpenStreetMap data. No account or key needed. */
-private fun tiles(dark: Boolean) = XYTileSource(
-    if (dark) "CartoDark" else "CartoLight", 1, 19, 256, ".png",
-    (if (dark) "dark_all" else "light_all").let { style ->
-        arrayOf("a", "b", "c").map { "https://$it.basemaps.cartocdn.com/$style/" }.toTypedArray()
-    },
-    "© OpenStreetMap contributors © CARTO",
+/** Which street map is drawn under routes. Both work without an account or key. */
+enum class MapTiles(val label: String, val credit: String) {
+    Esri("Esri gray", "Esri, HERE, Garmin, © OpenStreetMap contributors"),
+    Osm("OpenStreetMap", "© OpenStreetMap contributors"),
+}
+
+/** Esri's quiet gray canvas maps, in a dark and a light version. Their tile URLs are zoom/row/column. */
+private class EsriCanvas(dark: Boolean) : OnlineTileSourceBase(
+    if (dark) "EsriDark" else "EsriLight", 1, 16, 256, "",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/" + (if (dark) "World_Dark_Gray_Base" else "World_Light_Gray_Base") + "/MapServer/tile/"),
+    "Esri, HERE, Garmin, © OpenStreetMap contributors",
+) {
+    override fun getTileURLString(index: Long): String =
+        baseUrl + MapTileIndex.getZoom(index) + "/" + MapTileIndex.getY(index) + "/" + MapTileIndex.getX(index)
+}
+
+private fun tiles(dark: Boolean, kind: MapTiles) = when (kind) {
+    MapTiles.Esri -> EsriCanvas(dark)
+    MapTiles.Osm -> TileSourceFactory.MAPNIK
+}
+
+/** Turns the light OpenStreetMap map into a dim dark one: colours inverted, then darkened slightly. */
+private val InvertDim = android.graphics.ColorMatrixColorFilter(
+    android.graphics.ColorMatrix(
+        floatArrayOf(
+            -0.85f, 0f, 0f, 0f, 220f,
+            0f, -0.85f, 0f, 0f, 220f,
+            0f, 0f, -0.85f, 0f, 220f,
+            0f, 0f, 0f, 1f, 0f,
+        )
+    )
 )
 
-private fun newMap(context: Context, dark: Boolean): MapView = MapView(context).apply {
-    setTileSource(tiles(dark))
+/** Applies the tile source; the OpenStreetMap map is colour-inverted in dark mode. */
+private fun MapView.useTiles(dark: Boolean, kind: MapTiles) {
+    val wanted = tiles(dark, kind)
+    if (tileProvider.tileSource.name() != wanted.name()) setTileSource(wanted)
+    overlayManager.tilesOverlay.setColorFilter(if (kind == MapTiles.Osm && dark) InvertDim else null)
+}
+
+private fun newMap(context: Context, dark: Boolean, kind: MapTiles): MapView = MapView(context).apply {
+    useTiles(dark, kind)
     setMultiTouchControls(true)
     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
     isTilesScaledToDpi = true
@@ -178,7 +212,8 @@ private class RouteOverlay(
     }
 
     override fun onLongPress(e: MotionEvent, map: MapView): Boolean {
-        val i = nearest(e, map, 80f * density) ?: return false
+        // Holding anywhere picks the nearest point on the route, so it is easy to hit with a thumb.
+        val i = nearest(e, map, Float.MAX_VALUE) ?: return false
         scrubbing = true
         selected = i
         onSelect(i)
@@ -224,6 +259,7 @@ fun RouteMapScreen(
     var scale by remember { mutableStateOf(ColorScale.entries.firstOrNull { it.name == settings.routeScale } ?: ColorScale.Parula) }
     var mode by remember { mutableStateOf(ScaleMode.Relative) }
     var selected by remember { mutableStateOf<Int?>(null) }
+    var tileKind by remember { mutableStateOf(MapTiles.entries.firstOrNull { it.name == settings.mapTiles } ?: MapTiles.Esri) }
 
     val range = remember(points, metric, mode) { Route.range(points, metric, mode) }
     val colors = remember(points, metric, scale, range) {
@@ -246,10 +282,10 @@ fun RouteMapScreen(
             )
             Text(title, style = Type.title, modifier = Modifier.weight(1f), maxLines = 1)
         }
-        Box(Modifier.fillMaxWidth().weight(0.58f)) {
-            RouteMap(points, colors, stops, harsh, selected) { selected = it }
+        Box(Modifier.fillMaxWidth().weight(0.58f).clipToBounds()) {
+            RouteMap(points, colors, stops, harsh, selected, tileKind) { selected = it }
             Text(
-                "© OpenStreetMap contributors © CARTO",
+                tileKind.credit,
                 style = Type.label.copy(fontSize = Type.sz(10f), color = Palette.Label),
                 modifier = Modifier.align(Alignment.BottomEnd).background(Palette.Background.copy(alpha = 0.6f)).padding(4.dp),
             )
@@ -279,6 +315,7 @@ fun RouteMapScreen(
             Chips(ColorScale.entries.toList(), scale, { it.label }) { scale = it; settings.routeScale = it.name }
             Chips(ScaleMode.entries.toList(), mode, { it.label }) { mode = it }
             Legend(scale, range, metric)
+            Chips(MapTiles.entries.toList(), tileKind, { it.label }) { tileKind = it; settings.mapTiles = it.name }
             if (points.any { it.altitude != null }) {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     Text("Elevation", style = Type.section)
@@ -308,6 +345,7 @@ private fun RouteMap(
     stops: List<com.abeernch.civicobd.core.Stop>,
     harsh: List<com.abeernch.civicobd.core.Harsh>,
     selected: Int?,
+    tileKind: MapTiles,
     onSelect: (Int) -> Unit,
 ) {
     val dark = Palette.isDark
@@ -318,7 +356,7 @@ private fun RouteMap(
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
-            newMap(ctx, dark).also { map ->
+            newMap(ctx, dark, tileKind).also { map ->
                 val overlay = RouteOverlay(ctx.resources.displayMetrics.density, onSelect)
                 map.overlays.add(overlay)
                 map.tag = overlay
@@ -340,8 +378,7 @@ private fun RouteMap(
             overlay.selected = selected
             overlay.accent = accent.toArgbInt()
             overlay.ink = ink.toArgbInt()
-            val wanted = if (dark) "CartoDark" else "CartoLight"
-            if (map.tileProvider.tileSource.name() != wanted) map.setTileSource(tiles(dark))
+            map.useTiles(dark, tileKind)
             map.invalidate()
         },
     )
@@ -466,6 +503,7 @@ fun HeatMapScreen(cells: List<HeatCell>, settings: AppSettings, onBack: () -> Un
     var picked by remember { mutableStateOf<HeatCell?>(null) }
     val range = 6.0 to 20.0
     val dark = Palette.isDark
+    val tileKind = MapTiles.entries.firstOrNull { it.name == settings.mapTiles } ?: MapTiles.Esri
     var mapRef by remember { mutableStateOf<MapView?>(null) }
     DisposableEffect(Unit) { onDispose { mapRef?.onDetach() } }
 
@@ -477,7 +515,7 @@ fun HeatMapScreen(cells: List<HeatCell>, settings: AppSettings, onBack: () -> Un
             )
             Text("Fuel map, all drives", style = Type.title)
         }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+        Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
             if (cells.isEmpty()) {
                 Text(
                     "No drives with GPS yet. Routes are recorded once location is allowed.",
@@ -487,7 +525,7 @@ fun HeatMapScreen(cells: List<HeatCell>, settings: AppSettings, onBack: () -> Un
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        newMap(ctx, dark).also { map ->
+                        newMap(ctx, dark, tileKind).also { map ->
                             val d = ctx.resources.displayMetrics.density
                             map.overlays.add(HeatOverlay(d) { picked = it })
                             mapRef = map
@@ -507,7 +545,7 @@ fun HeatMapScreen(cells: List<HeatCell>, settings: AppSettings, onBack: () -> Un
                 )
             }
             Text(
-                "© OpenStreetMap contributors © CARTO",
+                tileKind.credit,
                 style = Type.label.copy(fontSize = Type.sz(10f), color = Palette.Label),
                 modifier = Modifier.align(Alignment.BottomEnd).background(Palette.Background.copy(alpha = 0.6f)).padding(4.dp),
             )

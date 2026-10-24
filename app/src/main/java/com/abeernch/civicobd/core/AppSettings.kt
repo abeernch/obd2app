@@ -106,6 +106,11 @@ class AppSettings(context: Context) {
         get() = prefs.getFloat("privacy_trim_m", 200f).toDouble()
         set(value) = prefs.edit().putFloat("privacy_trim_m", value.toFloat()).apply()
 
+    /** Street map under routes: "Esri" or "Osm". */
+    var mapTiles: String
+        get() = prefs.getString("map_tiles", "Esri") ?: "Esri"
+        set(value) = prefs.edit().putString("map_tiles", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

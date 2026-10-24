@@ -62,6 +62,7 @@ class RouteTracker(private val context: Context) {
     private var demoLon = 73.0479
     private var demoHeading = 60.0
     private var demoDistance = 0.0
+    private var demoTotal = 0.0
 
     fun demoStep(speedKmh: Double, dtS: Double) {
         val metres = speedKmh / 3.6 * dtS
@@ -76,7 +77,8 @@ class RouteTracker(private val context: Context) {
         val rad = Math.toRadians(demoHeading)
         demoLat += metres * cos(rad) / 111_320.0
         demoLon += metres * sin(rad) / (111_320.0 * cos(Math.toRadians(demoLat)))
-        val altitude = 520 + 25 * sin(demoLat * 4000)
+        demoTotal += metres
+        val altitude = 520 + 25 * sin(demoTotal / 900.0)
         latest = Fix(demoLat, demoLon, speedKmh, altitude, 4.0)
     }
 }
