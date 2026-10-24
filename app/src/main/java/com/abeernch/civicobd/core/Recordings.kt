@@ -125,6 +125,9 @@ class Recordings(private val store: TripStore) {
 
     fun all(): List<RecordingRow> = list("", emptyArray())
 
+    /** The recording made with a trip, if any. */
+    fun forTrip(tripId: Long): RecordingRow? = list("WHERE trip_id = ?", arrayOf(tripId.toString())).firstOrNull()
+
     fun exists(startMs: Long, source: String): Boolean =
         list("WHERE start_ms = ? AND source = ?", arrayOf(startMs.toString(), source)).isNotEmpty()
 
@@ -146,6 +149,34 @@ class Recordings(private val store: TripStore) {
     }
 
     /** Channels that have samples in this recording, in a stable order. */
+    /**
+     * First and last GPS position of a recording, read with four small queries instead of the
+     * whole track. Null when it has no GPS.
+     */
+    fun endpoints(recId: Long): DoubleArray? {
+        val db = store.readableDatabase
+        fun channel(vararg names: String): Long? {
+            for (n in names) {
+                db.rawQuery("SELECT id FROM channels WHERE name = ? COLLATE NOCASE", arrayOf(n)).use { c ->
+                    if (c.moveToFirst()) return c.getLong(0)
+                }
+            }
+            return null
+        }
+        val lat = channel("Latitude", "GPS Latitude", "Latitude (GPS)") ?: return null
+        val lon = channel("Longitude", "GPS Longitude", "Longitude (GPS)") ?: return null
+        fun pick(ch: Long, order: String): Double? =
+            db.rawQuery(
+                "SELECT value FROM samples WHERE rec_id = ? AND ch_id = ? AND value != 0 ORDER BY t_ms $order LIMIT 1",
+                arrayOf(recId.toString(), ch.toString()),
+            ).use { c -> if (c.moveToFirst()) c.getDouble(0) else null }
+        val a = pick(lat, "ASC") ?: return null
+        val b = pick(lon, "ASC") ?: return null
+        val c = pick(lat, "DESC") ?: return null
+        val d = pick(lon, "DESC") ?: return null
+        return doubleArrayOf(a, b, c, d)
+    }
+
     fun channels(recId: Long): List<Channel> {
         val out = mutableListOf<Channel>()
         store.readableDatabase.rawQuery(

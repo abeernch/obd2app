@@ -175,6 +175,37 @@ class CoreTest {
         it
     }
 
+    @Test
+    fun serviceDueByDistanceOrTimeWhicheverFirst() {
+        val day = 86_400_000L
+        val now = 1_800_000_000_000L
+        val oil = com.abeernch.civicobd.core.ServiceItem("oil", "Engine oil", 5000.0, 6, doneKm = 195_000.0, doneMs = now - 30 * day)
+        val s = com.abeernch.civicobd.core.Maintenance.status(oil, 199_251.0, now)
+        assertEquals(749.0, s.dueInKm!!, 0.5)
+        assertEquals(150, s.dueInDays)
+        assertTrue(!s.overdue && !s.soon)
+        val late = com.abeernch.civicobd.core.Maintenance.status(oil, 200_300.0, now)
+        assertTrue(late.overdue)
+        assertEquals("overdue by 300 km or in 5 months", com.abeernch.civicobd.core.Maintenance.dueText(late))
+    }
+
+    @Test
+    fun drivesBetweenTheSamePlacesFormOneRoute() {
+        fun trip(id: Long, start: Long) = com.abeernch.civicobd.core.TripRow(id = id, startMs = start, endMs = start + 1_800_000, distanceKm = 19.0, fuelL = 1.4)
+        val home = 33.6500 to 73.0500
+        val work = 33.6000 to 73.1000
+        val ends = listOf(
+            com.abeernch.civicobd.core.TripEnds(trip(1, 1), home.first, home.second, work.first, work.second),
+            com.abeernch.civicobd.core.TripEnds(trip(2, 2), home.first + 0.001, home.second, work.first, work.second + 0.001),
+            com.abeernch.civicobd.core.TripEnds(trip(3, 3), work.first, work.second, home.first, home.second), // the way back
+            com.abeernch.civicobd.core.TripEnds(trip(4, 4), 33.7, 73.2, 33.71, 73.21), // a one-off
+        )
+        val groups = com.abeernch.civicobd.core.RouteGroups.build(ends, mapOf(1L to "Home to office"))
+        assertEquals(1, groups.size)
+        assertEquals("Home to office", groups[0].name)
+        assertEquals(listOf(2L, 1L), groups[0].trips.map { it.id })
+    }
+
     /**
      * From the 24 Oct drive log: 0100 timed out, its answer came late, and every later reply was
      * read one command behind ("0100 -> 11.9V"). The session must wait out the late answer.

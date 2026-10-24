@@ -31,6 +31,7 @@ import com.abeernch.civicobd.core.TripTotals
 import com.abeernch.civicobd.obd.ClassicTransport
 import com.abeernch.civicobd.obd.ElmSession
 import com.abeernch.civicobd.obd.Pids
+import com.abeernch.civicobd.core.TripSummary
 import com.abeernch.civicobd.obd.SimTransport
 import com.abeernch.civicobd.obd.Transport
 import kotlinx.coroutines.CancellationException
@@ -79,6 +80,7 @@ class ObdService : Service() {
         route = RouteTracker(this)
         metrics = MetricEngine(settings.gearRatios.split(",").mapNotNull { it.toDoubleOrNull() }.takeIf { it.size == 5 })
         createChannel()
+        Alerts.createChannels(this)
         startForeground(NOTE_ID, note("Waiting for the car"))
         scope.launch { mainLoop() }
     }
@@ -387,6 +389,7 @@ class ObdService : Service() {
             )
         }
         LiveBus.log("Fault codes: stored ${stored.size}, pending ${pending.size}")
+        if (!settings.demo) Alerts.codes(this, settings, stored, pending, LiveBus.state.value.monitors?.mil)
     }
 
     private suspend fun readVoltage(elm: ElmSession): Double? {
@@ -440,6 +443,11 @@ class ObdService : Service() {
         )
         names.forEachIndexed { i, name -> list += Monitor(name, bit(c, i), !bit(d, i)) }
         LiveBus.update { it.copy(monitors = Monitors(bit(a, 7), a and 0x7F, list)) }
+        // A check-engine light that comes on mid-drive is announced straight away.
+        if (!settings.demo && bit(a, 7) && !settings.milWasOn) {
+            val d = Diagnostics.state.value
+            Alerts.codes(this, settings, d.stored, d.pending, true)
+        }
     }
 
     // ---- Trips ----
@@ -632,6 +640,10 @@ class ObdService : Service() {
             // Engine started but the car did not move: keep nothing.
             if (recId >= 0) recordings.delete(recId, withTrip = false)
             store.delete(trip.id)
+        } else {
+            // The summary as soon as the car is parked, then any service job the drive made due.
+            store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store)) }
+            Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
         }
         recId = -1
         lastTickMs = 0L

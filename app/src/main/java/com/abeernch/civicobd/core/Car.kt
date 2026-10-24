@@ -12,7 +12,7 @@ object Car {
         val base = settings.odometerKm ?: return CarStatus(null, null)
         val since = store.between(settings.odometerAtMs, now).sumOf { it.distanceKm } + liveTripKm
         val odo = base + since
-        val oil = settings.oilChangedAtKm?.let { it + settings.oilIntervalKm - odo }
-        return CarStatus(odo, oil, oil?.let { it / settings.oilIntervalKm })
+        val oil = Maintenance.load(settings).firstOrNull { it.key == "oil" }?.let { Maintenance.status(it, odo, now) }
+        return CarStatus(odo, oil?.dueInKm, oil?.life)
     }
 }

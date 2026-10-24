@@ -82,6 +82,7 @@ fun DriveScreen(
     settings: AppSettings,
     locationOk: Boolean = true,
     onHud: () -> Unit = {},
+    lastTrip: com.abeernch.civicobd.core.TripSummary? = null,
 ) {
     val pager = rememberPagerState(initialPage = settings.driveView.coerceIn(0, 1)) { 2 }
     val scope = rememberCoroutineScope()
@@ -95,7 +96,7 @@ fun DriveScreen(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ViewSwitch(pager.currentPage + pager.currentPageOffsetFraction) { go(it) }
+            SegmentSwitch(listOf("Gauges", "Map"), pager.currentPage + pager.currentPageOffsetFraction) { go(it) }
             Spacer(Modifier.weight(1f))
             Text(
                 "HUD", style = Type.label.copy(color = Palette.Accent, fontSize = Type.sz(16f)),
@@ -109,7 +110,7 @@ fun DriveScreen(
             userScrollEnabled = pager.settledPage == 0,
             beyondViewportPageCount = 1,
         ) { page ->
-            if (page == 0) Gauges(live, today, tank, settings)
+            if (page == 0) Gauges(live, today, tank, settings, lastTrip)
             else DriveMap(live, settings, locationOk, onSwipeBack = { go(0) })
         }
     }
@@ -117,8 +118,7 @@ fun DriveScreen(
 
 /** Two large segments with a soft accent fill that slides along with the swipe. */
 @Composable
-private fun ViewSwitch(position: Float, onPick: (Int) -> Unit) {
-    val labels = listOf("Gauges", "Map")
+fun SegmentSwitch(labels: List<String>, position: Float, onPick: (Int) -> Unit) {
     val seg = 100.dp
     val shape = RoundedCornerShape(24.dp)
     Box(
@@ -162,7 +162,18 @@ private fun ViewSwitch(position: Float, onPick: (Int) -> Unit) {
 // ---- Gauges ----
 
 @Composable
-private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings) {
+private fun Gauges(
+    live: LiveState,
+    today: Summary,
+    tank: com.abeernch.civicobd.core.Tank?,
+    settings: AppSettings,
+    lastTrip: com.abeernch.civicobd.core.TripSummary?,
+) {
+    // Parked: the last drive's summary instead of a screen of empty readings.
+    if (!live.trip.active && lastTrip != null) {
+        Parked(lastTrip, today, tank, settings)
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             // Landscape: the big number on the left, the tiles scroll on the right.
@@ -224,6 +235,53 @@ private fun Hero(live: LiveState, tank: com.abeernch.civicobd.core.Tank?, settin
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = live.trip.kmPerL)
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun Parked(
+    last: com.abeernch.civicobd.core.TripSummary,
+    today: Summary,
+    tank: com.abeernch.civicobd.core.Tank?,
+    settings: AppSettings,
+) {
+    val todayBlock: @Composable () -> Unit = {
+        Section("Today") {
+            Row(Modifier.fillMaxWidth()) {
+                Tile("Distance", fmt(today.distanceKm, 1), "km", Modifier.weight(1f))
+                Tile("Economy", fmt(today.kmPerL), "km/L", Modifier.weight(1f))
+                Tile("Cost", "%,d".format(today.cost.toLong()), "Rs", Modifier.weight(1f))
+            }
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+                Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
+                    TripSummaryCard(last, title = "Last drive")
+                }
+                Spacer(Modifier.width(24.dp))
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    FuelIndicator(tank, settings)
+                    Spacer(Modifier.height(16.dp))
+                    todayBlock()
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Parked", style = Type.title)
+                        Text("Starts recording when the engine runs", style = Type.label)
+                    }
+                    FuelIndicator(tank, settings)
+                }
+                TripSummaryCard(last, title = "Last drive")
+                Spacer(Modifier.height(24.dp))
+                todayBlock()
+                Spacer(Modifier.height(24.dp))
+            }
+        }
     }
 }
 

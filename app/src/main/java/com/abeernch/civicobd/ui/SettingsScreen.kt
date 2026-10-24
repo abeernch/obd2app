@@ -45,6 +45,9 @@ fun SettingsScreen(
     onBackup: () -> Unit,
     onRestore: () -> Unit,
     onFloatingChanged: () -> Unit = {},
+    live: com.abeernch.civicobd.core.LiveState? = null,
+    onShareLog: () -> Unit = {},
+    onImport: () -> Unit = {},
 ) {
     var price by remember { mutableStateOf(fmt(settings.fuelPrice, 0)) }
     var factor by remember { mutableStateOf(fmt(settings.fuelFactor, 2)) }
@@ -119,8 +122,6 @@ fun SettingsScreen(
 
         Section("Car") {
             var odo by remember { mutableStateOf(settings.odometerKm?.let { fmt(it, 0) } ?: "") }
-            var interval by remember { mutableStateOf(fmt(settings.oilIntervalKm, 0)) }
-            var oilAt by remember { mutableStateOf(settings.oilChangedAtKm?.let { fmt(it, 0) } ?: "") }
             NumberField("Odometer now", odo, "km") {
                 odo = it
                 it.toDoubleOrNull()?.let { km ->
@@ -129,17 +130,8 @@ fun SettingsScreen(
                     onChanged()
                 }
             }
-            NumberField("Oil change every", interval, "km") {
-                interval = it
-                it.toDoubleOrNull()?.takeIf { km -> km >= 500 }?.let { km -> settings.oilIntervalKm = km; onChanged() }
-            }
-            NumberField("Last oil change at", oilAt, "km") {
-                oilAt = it
-                settings.oilChangedAtKm = it.toDoubleOrNull()
-                onChanged()
-            }
             Text(
-                "Enter the odometer once. Every logged trip is added to it, so the reminder stays current.",
+                "Enter the odometer once. Every logged drive is added to it, so the service reminders in the Car tab stay current.",
                 style = Type.label,
                 modifier = Modifier.padding(top = 6.dp),
             )
@@ -216,6 +208,15 @@ fun SettingsScreen(
             }
         }
 
+        Section("Import") {
+            Text(
+                "Add drives logged with Car Scanner (its CSV export). They join your trips and statistics.",
+                style = Type.label,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            OutlineButton("Import Car Scanner CSV", onClick = onImport)
+        }
+
         Section("Backup") {
             Text(
                 "One file with every trip, recording, fill-up and setting. Keep a copy in Drive, " +
@@ -227,6 +228,8 @@ fun SettingsScreen(
             Spacer(Modifier.height(10.dp))
             OutlineButton("Restore from a backup", color = Palette.Label, onClick = onRestore)
         }
+
+        live?.let { ConnectionSection(it, onShareLog) }
 
         Section("Demo") {
             var demo by remember { mutableStateOf(settings.demo) }

@@ -47,7 +47,6 @@ import com.abeernch.civicobd.service.ObdService
 import com.abeernch.civicobd.ui.AppShell
 import com.abeernch.civicobd.ui.DriveScreen
 import com.abeernch.civicobd.ui.PairedDevice
-import com.abeernch.civicobd.ui.SensorsScreen
 import com.abeernch.civicobd.ui.SettingsScreen
 import com.abeernch.civicobd.ui.StatsScreen
 import com.abeernch.civicobd.ui.Tab
@@ -62,7 +61,6 @@ import com.abeernch.civicobd.core.RecordingRow
 import com.abeernch.civicobd.core.Recordings
 import com.abeernch.civicobd.core.TripRow
 import com.abeernch.civicobd.ui.ExportKind
-import com.abeernch.civicobd.ui.LogsScreen
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -155,6 +153,7 @@ class MainActivity : ComponentActivity() {
             Configuration.UI_MODE_NIGHT_YES
         Appearance.apply(settings, systemDarkNow)
 
+        handleOpen(intent)
         setContent {
             val systemDark = isSystemInDarkTheme()
             val tick = appearanceTick
@@ -248,16 +247,42 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
-            AppShell(live, driveJump) { tab ->
+            // The last finished drive, shown on Drive while parked.
+            var lastTrip by remember { mutableStateOf<com.abeernch.civicobd.core.TripSummary?>(null) }
+            LaunchedEffect(live.tripsVersion) {
+                lastTrip = withContext(Dispatchers.IO) {
+                    store.between(0, Long.MAX_VALUE).firstOrNull()?.let { com.abeernch.civicobd.core.TripSummary.of(it, store) }
+                }
+            }
+
+            AppShell(live, driveJump, jump) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
                         locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
                             PackageManager.PERMISSION_GRANTED,
                         onHud = { hud = true },
+                        lastTrip = lastTrip,
                     )
-                    Tab.Sensors -> SensorsScreen(live, today, week, total, onShareLog = ::shareLog, starts = starts)
-                    Tab.Stats -> if (fuelOpen) {
+                    Tab.Trips -> com.abeernch.civicobd.ui.TripsScreen(
+                        store = store,
+                        recordings = recordings,
+                        version = live.tripsVersion,
+                        settings = settings,
+                        openTripId = openTripId,
+                        onOpened = { openTripId = null },
+                        onExport = { rec, _, kind -> exportRecording(rec, kind) },
+                        onExportRoute = { rec, pts, gpx, scale, range -> exportRoute(rec, pts, gpx, scale, range) },
+                        onDelete = { trip, rec ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                // Deleting a drive removes both its totals and its recording.
+                                if (rec != null) recordings.delete(rec.id, withTrip = true) else store.delete(trip.id)
+                                LiveBus.tripsChanged()
+                            }
+                        },
+                    )
+                    Tab.Stats -> StatsScreen(store, live.tripsVersion, onExportTrips = ::exportTrips)
+                    Tab.Car -> if (fuelOpen) {
                         FuelScreen(
                             fuel = fuel, settings = settings, tank = tank, version = fuelTick,
                             onBack = { fuelOpen = false },
@@ -267,25 +292,13 @@ class MainActivity : ComponentActivity() {
                             },
                         )
                     } else {
-                        StatsScreen(store, live.tripsVersion, onExportTrips = ::exportTrips) {
-                            TankCard(tank) { fuelOpen = true }
-                            CarCard(car)
-                        }
+                        com.abeernch.civicobd.ui.CarScreen(
+                            live = live, car = car, tank = tank, settings = settings, starts = starts,
+                            today = today, week = week, total = total,
+                            onOpenFuel = { fuelOpen = true },
+                            onServiceChanged = { fuelTick++ },
+                        )
                     }
-                    Tab.Logs -> LogsScreen(
-                        recordings = recordings,
-                        version = live.tripsVersion,
-                        onImport = { pickFiles.launch(arrayOf("text/*", "application/octet-stream", "*/*")) },
-                        onExport = { rec, _, kind -> exportRecording(rec, kind) },
-                        settings = settings,
-                        onExportRoute = { rec, pts, gpx, scale, range -> exportRoute(rec, pts, gpx, scale, range) },
-                        onDelete = { rec ->
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                recordings.delete(rec.id, withTrip = rec.source != "Live")
-                                LiveBus.tripsChanged()
-                            }
-                        },
-                    )
                     Tab.Settings -> SettingsScreen(
                         settings = settings,
                         paired = pairedDevices(),
@@ -300,10 +313,34 @@ class MainActivity : ComponentActivity() {
                         onBackup = ::backupAll,
                         onFloatingChanged = ::updatePip,
                         onRestore = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                        live = live,
+                        onShareLog = ::shareLog,
+                        onImport = { pickFiles.launch(arrayOf("text/*", "application/octet-stream", "*/*")) },
                     )
                 }
             }
         }
+    }
+
+    // ---- Opened from a notification ----
+
+    // Which tab to show, and which drive to open, when a notification is tapped.
+    private var jump by mutableStateOf<Pair<Tab, Int>?>(null)
+    private var openTripId by mutableStateOf<Long?>(null)
+    private var jumpCount = 0
+
+    private fun handleOpen(intent: Intent?) {
+        val tab = intent?.getStringExtra(com.abeernch.civicobd.service.Alerts.EXTRA_TAB) ?: return
+        val t = Tab.entries.firstOrNull { it.name == tab } ?: return
+        if (intent.hasExtra(com.abeernch.civicobd.service.Alerts.EXTRA_TRIP)) {
+            openTripId = intent.getLongExtra(com.abeernch.civicobd.service.Alerts.EXTRA_TRIP, -1)
+        }
+        jump = t to ++jumpCount
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOpen(intent)
     }
 
     // ---- Floating window (picture in picture) ----

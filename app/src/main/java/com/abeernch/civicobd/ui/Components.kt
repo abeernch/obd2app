@@ -192,3 +192,34 @@ fun IconPower(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, 
     )
     drawLine(color, Offset(12f * u, 3f * u), Offset(12f * u, 11f * u), stroke.width, StrokeCap.Round)
 }
+
+/** Trips: a winding road between a start ring and an end dot. */
+@Composable
+fun IconRoute(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    val p = Path().apply {
+        moveTo(6f * u, 18f * u)
+        cubicTo(6f * u, 12f * u, 18f * u, 15f * u, 18f * u, 9f * u)
+    }
+    drawPath(p, color, style = stroke)
+    drawCircle(color, 2.4f * u, Offset(6f * u, 19.5f * u), style = stroke)
+    drawCircle(color, 2.4f * u, Offset(18f * u, 6.5f * u))
+}
+
+/** Car: a side profile with two wheels. */
+@Composable
+fun IconCar(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u ->
+    val body = Path().apply {
+        moveTo(3f * u, 16f * u)
+        lineTo(3f * u, 12.5f * u)
+        lineTo(6.5f * u, 11.5f * u)
+        lineTo(9f * u, 7.5f * u)
+        lineTo(16f * u, 7.5f * u)
+        lineTo(19f * u, 11.5f * u)
+        lineTo(21f * u, 12.5f * u)
+        lineTo(21f * u, 16f * u)
+    }
+    drawPath(body, color, style = stroke)
+    drawLine(color, Offset(9.6f * u, 16f * u), Offset(14.4f * u, 16f * u), stroke.width, StrokeCap.Round)
+    drawCircle(color, 2.2f * u, Offset(7.2f * u, 16.5f * u), style = stroke)
+    drawCircle(color, 2.2f * u, Offset(16.8f * u, 16.5f * u), style = stroke)
+}

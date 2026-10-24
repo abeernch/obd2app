@@ -49,16 +49,18 @@ import androidx.compose.ui.unit.dp
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveState
 
-enum class Tab(val label: String) { Drive("Drive"), Sensors("Sensors"), Stats("Stats"), Logs("Logs"), Settings("Settings") }
+enum class Tab(val label: String) { Drive("Drive"), Trips("Trips"), Stats("Stats"), Car("Car"), Settings("Settings") }
 
 /**
  * Splash on a cold start, then the app: header with the connection light,
  * the current screen, and the bottom tab bar with a sliding orange indicator.
  */
 @Composable
-fun AppShell(live: LiveState, driveJump: Int = 0, screen: @Composable (Tab) -> Unit) {
+fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, screen: @Composable (Tab) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.Drive) }
     androidx.compose.runtime.LaunchedEffect(driveJump) { if (driveJump > 0) tab = Tab.Drive }
+    // A notification opened the app on a particular tab (the number makes each request unique).
+    androidx.compose.runtime.LaunchedEffect(jump) { jump?.let { tab = it.first } }
     var splashDone by rememberSaveable { mutableStateOf(false) }
     // The app is composed from the first frame, hidden under the splash, so it is ready
     // the moment the splash starts to leave. It then rises into place while the splash fades:
@@ -231,8 +233,8 @@ private fun TabButton(tab: Tab, on: Boolean, modifier: Modifier, onClick: () -> 
 @Composable
 private fun tabIcon(tab: Tab, color: Color, size: Dp) = when (tab) {
     Tab.Drive -> IconGauge(color, size)
-    Tab.Sensors -> IconList(color, size)
+    Tab.Trips -> IconRoute(color, size)
     Tab.Stats -> IconBars(color, size)
-    Tab.Logs -> IconWave(color, size)
+    Tab.Car -> IconCar(color, size)
     Tab.Settings -> IconSliders(color, size)
 }

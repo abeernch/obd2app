@@ -110,6 +110,8 @@ class TripStore private constructor(context: Context) :
     }
 
     /** Trips that started in [fromMs, toMs), newest first. */
+    fun byId(id: Long): TripRow? = between(0, Long.MAX_VALUE).firstOrNull { it.id == id }
+
     fun between(fromMs: Long, toMs: Long): List<TripRow> {
         val list = mutableListOf<TripRow>()
         readableDatabase.rawQuery(

@@ -126,6 +126,30 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("fuel_gauge_analog", true)
         set(value) = prefs.edit().putBoolean("fuel_gauge_analog", value).apply()
 
+    /** Service jobs and their intervals, as JSON. Empty until first saved; see Maintenance. */
+    var serviceJson: String?
+        get() = prefs.getString("service_items", null)
+        set(value) = prefs.edit().putString("service_items", value).apply()
+
+    /** Service jobs already announced as due, as "key@doneKm" entries, so each is announced once. */
+    var serviceNotified: String
+        get() = prefs.getString("service_notified", "") ?: ""
+        set(value) = prefs.edit().putString("service_notified", value).apply()
+
+    /** Fault codes already announced, comma separated, and whether the check-engine light was on. */
+    var codesNotified: String
+        get() = prefs.getString("codes_notified", "") ?: ""
+        set(value) = prefs.edit().putString("codes_notified", value).apply()
+
+    var milWasOn: Boolean
+        get() = prefs.getBoolean("mil_was_on", false)
+        set(value) = prefs.edit().putBoolean("mil_was_on", value).apply()
+
+    /** Names given to repeated routes, as JSON keyed by the route's first trip id. */
+    var routeNames: String
+        get() = prefs.getString("route_names", "{}") ?: "{}"
+        set(value) = prefs.edit().putString("route_names", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

@@ -24,7 +24,7 @@ tap_text() {
   done
   # Fallback for the five tabs: the bar sits at the bottom, slots of equal width.
   case "$1" in
-    Drive) i=0;; Sensors) i=1;; Stats) i=2;; Logs) i=3;; Settings) i=4;; *) i=-1;;
+    Drive) i=0;; Trips) i=1;; Stats) i=2;; Car) i=3;; Settings) i=4;; *) i=-1;;
   esac
   if [ "$i" -ge 0 ]; then
     read W H < <(adb shell wm size | sed -E 's/.*: ([0-9]+)x([0-9]+).*/\1 \2/' | tr -d '\r')
@@ -126,10 +126,14 @@ adb shell input keyevent KEYCODE_HOME; sleep 5; shot 05f_floating_window
 adb shell am start -n $PKG/.MainActivity; sleep 4; shot 05g_back_from_window
 tap_text "Gauges"; sleep 2
 
-tap_text "Sensors"; sleep 2; shot 06_sensors_top
-adb shell input swipe 540 1700 540 500 400; sleep 1.5; shot 07_sensors_engine
-scroll_tap "Read codes now"; sleep 4; shot 08b_sensors_faults_read
-adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_sensors_battery
+tap_text "Car"; sleep 2; shot 06_car_top
+adb shell input swipe 540 1700 540 700 400; sleep 1.5; shot 07_car_tank
+scroll_tap "Read codes now"; sleep 4; shot 08b_car_faults_read
+adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_car_battery
+# A service job opened for editing.
+adb shell input swipe 540 500 540 2000 300; adb shell input swipe 540 500 540 2000 300; sleep 1
+tap_text "Engine oil and filter"; sleep 2; shot 08d_car_service_edit
+tap_text "Engine oil and filter"; sleep 1
 tap_text "Settings"; sleep 2; shot 09_settings_top
 tap_text "Daylight"; sleep 2; shot 09c_settings_light
 tap_text "Drive"; sleep 2; shot 09d_drive_light
@@ -139,40 +143,47 @@ tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
 tap_text "Settings"; sleep 2
 tap_text "Papaya night"; sleep 2
 
-# 5. Wait for the demo engine-off phase so the trip closes, then statistics and fuel.
+# 5. Wait for the demo engine-off phase so the trip closes (60 s parked), then the summary.
 sleep 62
+adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
+adb shell cmd statusbar collapse; sleep 1
+tap_text "Drive"; sleep 2; shot 10d_drive_parked
 tap_text "Stats"; sleep 2; shot 10_stats_week
-tap_text "Fill-ups"; sleep 2; shot 10b_fuel
-tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
-adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Today"; sleep 2; shot 11_stats_today
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
-
-# 6. Logs: list, the imported recording's charts, then the demo drive's route map.
-tap_text "Logs"; sleep 2; shot 13_logs_list
-tap_text "Car Scanner"; sleep 3; shot 14_recording_separate
-adb shell input tap 700 1000; sleep 1.5; shot 15_recording_marker
-tap_text "One plot"; sleep 2; shot 16_recording_combined
+tap_text "Car"; sleep 2
+scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel
+tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
-tap_text "Live" 0; sleep 3; shot 18_recording_demo
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+
+# 6. Trips: the list, an imported drive's page, then the demo drive's page and route map.
+tap_text "Trips"; sleep 2; shot 13_trips_list
+tap_text "Car Scanner"; sleep 3; shot 14_trip_imported
+adb shell input swipe 540 1800 540 700 400; sleep 1.5
+adb shell input tap 700 1200; sleep 1.5; shot 15_recording_marker
+scroll_tap "One plot"; sleep 2; shot 16_recording_combined
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+# The newest drive is the demo one; every card shows "km/L", so the first match is the top card.
+tap_text "km/L"; sleep 3; shot 18_trip_demo
 tap_text "Route map"; sleep 8; shot 20_route_map
 # Press and hold on the map, then slide: the marker should snap to the route and follow it.
 adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
 adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
-tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
-tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
 tap_text "Speed"; sleep 2; shot 24_route_speed
-adb shell input swipe 540 2000 540 1500 400; sleep 1.5; shot 25_route_lower
+scroll_tap "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
+scroll_tap "OpenStreetMap"; sleep 6; shot 22b_route_osm
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
+tap_text "Routes"; sleep 4; shot 13b_trips_routes
 
-# 7. Connection log from the app itself.
-tap_text "Sensors"; sleep 1
-for i in 1 2 3 4 5 6; do adb shell input swipe 540 1800 540 300 300; sleep 0.5; done
-shot 19_sensors_log
+# 7. Connection log, now in Settings.
+tap_text "Settings"; sleep 1
+scroll_tap "Show log"; sleep 1.5; shot 19_settings_log
 adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" 2>&1 || true
 adb shell dumpsys activity services $PKG | head -40 > "$OUT/service_state.txt" || true
 # Last: the all-drives fuel map, the heaviest screen for a GPU-less emulator. Everything above is saved first.
-tap_text "Logs"; sleep 2
+tap_text "Trips"; sleep 2
+tap_text "Routes"; sleep 3
 tap_text "Fuel map of all drives"; sleep 8; shot 26_fuel_map
 echo "done"
