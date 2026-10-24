@@ -168,7 +168,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
             // Landscape: the big number on the left, the tiles scroll on the right.
             Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    Hero(live, scale = 0.75f)
+                    Hero(live, tank, settings, scale = 0.75f)
                 }
                 Spacer(Modifier.width(28.dp))
                 Column(Modifier.weight(1.25f).verticalScroll(rememberScrollState())) {
@@ -183,7 +183,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
             ) {
-                Hero(live)
+                Hero(live, tank, settings)
                 Spacer(Modifier.height(28.dp))
                 GaugeTiles(live, today, tank, settings)
             }
@@ -192,7 +192,7 @@ private fun Gauges(live: LiveState, today: Summary, tank: com.abeernch.civicobd.
 }
 
 @Composable
-private fun Hero(live: LiveState, scale: Float = 1f) {
+private fun Hero(live: LiveState, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings, scale: Float = 1f) {
     val d = live.derived
     val hero = heroReading(live)
     Column {
@@ -202,13 +202,25 @@ private fun Hero(live: LiveState, scale: Float = 1f) {
         val heroTint by androidx.compose.animation.animateColorAsState(
             if (hero.fuelCut) Palette.Accent else Palette.Value, Motion.fade(400), label = "hero",
         )
-        if (hero.value == "--") {
-            // No reading: a single faint dash instead of two heavy bars.
-            Text("–", style = heroStyle(scale).copy(color = Palette.Label.copy(alpha = 0.45f)))
-        } else {
-            RollingNumber(hero.value, heroStyle(scale).copy(color = heroTint))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                if (hero.value == "--") {
+                    // No reading: a short accent dash, sitting where the number will appear.
+                    val style = heroStyle(scale)
+                    Box(Modifier.height(with(androidx.compose.ui.platform.LocalDensity.current) { style.lineHeight.toDp() }), contentAlignment = Alignment.CenterStart) {
+                        Box(
+                            Modifier.width(44.dp).height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Palette.Accent.copy(alpha = 0.6f))
+                        )
+                    }
+                } else {
+                    RollingNumber(hero.value, heroStyle(scale).copy(color = heroTint))
+                }
+                Text(hero.unit, style = Type.label.copy(fontSize = Type.sz(18f)))
+            }
+            FuelIndicator(tank, settings)
         }
-        Text(hero.unit, style = Type.label.copy(fontSize = Type.sz(18f)))
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = live.trip.kmPerL)
         Spacer(Modifier.height(12.dp))
@@ -234,9 +246,6 @@ private fun GaugeTiles(live: LiveState, today: Summary, tank: com.abeernch.civic
             Tile("Today", fmt(today.kmPerL), "", Modifier.weight(1f))
         }
     }
-    Spacer(Modifier.height(20.dp))
-
-    FuelGauge(tank, settings)
     Spacer(Modifier.height(20.dp))
 
     Section("This trip") {

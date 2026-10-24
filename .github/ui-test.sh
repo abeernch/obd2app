@@ -91,10 +91,9 @@ adb pull /sdcard/splash.mp4 "$OUT/splash.mp4"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
 sleep 22; shot 03_drive_accelerating
-adb shell input swipe 540 1700 540 900 400; sleep 1.5; shot 03b_fuel_dial
-tap_text "Digital"; sleep 2; shot 03c_fuel_digital
-tap_text "Dial"; sleep 1
-adb shell input swipe 540 700 540 1800 300; sleep 1
+# The fuel indicator beside the main number switches style when tapped (right edge, about a fifth down).
+adb shell input tap 960 560; sleep 2; shot 03c_fuel_bar
+adb shell input tap 960 560; sleep 1
 sleep 20; shot 04_drive_cruise
 
 # 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.

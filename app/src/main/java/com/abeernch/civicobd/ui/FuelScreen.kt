@@ -83,14 +83,14 @@ fun CarCard(status: com.abeernch.civicobd.core.CarStatus) {
             .padding(16.dp)
     ) {
         Text("Car", style = Type.section)
-        Row(Modifier.fillMaxWidth()) {
-            Tile("Odometer", fmt(status.odometerKm, 0), "km", Modifier.weight(1f))
-            val due = status.oilDueInKm
-            Tile(
-                if (due != null && due < 0) "Oil overdue" else "Oil change in",
-                fmt(due?.let { kotlin.math.abs(it) }, 0), "km", Modifier.weight(2f),
+        Spacer(Modifier.height(4.dp))
+        ReadingRow("Odometer", "%,d".format(status.odometerKm.toLong()), "km")
+        val due = status.oilDueInKm
+        if (due != null) {
+            ReadingRow(
+                if (due < 0) "Oil change overdue by" else "Oil change in",
+                "%,d".format(kotlin.math.abs(due).toLong()), "km",
                 color = when {
-                    due == null -> Palette.Value
                     due < 0 -> Palette.Warning
                     due < 500 -> Palette.Caution
                     else -> Palette.Value
