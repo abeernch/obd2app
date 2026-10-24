@@ -76,8 +76,6 @@ class ObdService : Service() {
         store = TripStore.get(this)
         recordings = com.abeernch.civicobd.core.Recordings(store)
         events = Events(store)
-        // Clears false "engine start" entries left by older versions (logged mid-drive).
-        try { events.removeFalseStarts() } catch (_: Exception) { }
         route = RouteTracker(this)
         metrics = MetricEngine(settings.gearRatios.split(",").mapNotNull { it.toDoubleOrNull() }.takeIf { it.size == 5 })
         createChannel()
@@ -288,7 +286,6 @@ class ObdService : Service() {
 
             val values = HashMap(LiveBus.state.value.values)
             var answered = 0
-            var rpmNow: Double? = null // engine speed read in this cycle, not left over from an earlier one
             for (code in codes) {
                 if (!has(code)) continue
                 val pid = Pids.BY_CODE[code] ?: continue
@@ -296,7 +293,6 @@ class ObdService : Service() {
                 if (value != null) {
                     values[code] = value
                     answered++
-                    if (code == 0x0C) rpmNow = value
                 }
             }
 
@@ -325,7 +321,7 @@ class ObdService : Service() {
             Diagnostics.requests.tryReceive().getOrNull()?.let { runDiagnostics(elm, it, suffix) }
 
             val now = System.currentTimeMillis()
-            watchStart(elm, rpmNow, now)
+            watchStart(elm, values[0x0C] ?: 0.0, now)
             val derived = metrics.step(values, now, settings.fuelFactor)
             recordTrip(values, derived, now)
 
@@ -398,23 +394,16 @@ class ObdService : Service() {
     // With the ignition on and the engine off, the voltage is sampled every cycle. When the engine
     // starts, the resting voltage (before cranking) and the lowest voltage while cranking are saved.
     private val voltHistory = ArrayDeque<Pair<Long, Double>>()
-    private var engineOffSince = 0L
+    private var engineWasOff = false
 
-    /**
-     * Only an engine speed actually read as zero counts as "engine off"; a missed reading
-     * (the engine computer pausing mid-drive) is ignored. A start is logged only after the
-     * engine has been off for at least 5 s with voltages read, so a pause never looks like a start.
-     */
-    private suspend fun watchStart(elm: ElmSession, rpm: Double?, now: Long) {
-        if (rpm == null) return
+    private suspend fun watchStart(elm: ElmSession, rpm: Double, now: Long) {
         if (rpm < 1) {
-            if (engineOffSince == 0L) engineOffSince = now
             readVoltage(elm)?.let { voltHistory.addLast(now to it) }
             while (voltHistory.isNotEmpty() && now - voltHistory.first().first > 10_000) voltHistory.removeFirst()
+            engineWasOff = true
             return
         }
-        val offFor = if (engineOffSince == 0L) 0L else now - engineOffSince
-        if (offFor >= 5_000 && voltHistory.size >= 2) {
+        if (engineWasOff && voltHistory.isNotEmpty()) {
             val before = voltHistory.filter { now - it.first > 3_000 }.map { it.second }
             val rest = (before.ifEmpty { voltHistory.map { it.second } }).maxOrNull()
             val crank = voltHistory.filter { now - it.first <= 4_000 }.minOfOrNull { it.second }
@@ -423,7 +412,7 @@ class ObdService : Service() {
             LiveBus.tripsChanged()
         }
         voltHistory.clear()
-        engineOffSince = 0L
+        engineWasOff = false
     }
 
     /** Mode 01 PID 01: check-engine light, fault code count and readiness monitors. */
