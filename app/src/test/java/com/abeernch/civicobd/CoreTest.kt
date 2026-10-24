@@ -202,6 +202,9 @@ class CoreTest {
         val late = com.abeernch.civicobd.core.Maintenance.status(oil, 200_300.0, now)
         assertTrue(late.overdue)
         assertEquals("overdue by 300 km or in 5 months", com.abeernch.civicobd.core.Maintenance.dueText(late))
+        // A reading typed into the wrong job (24 Oct recording): above the odometer, so flagged, not shown as due.
+        val wrong = com.abeernch.civicobd.core.Maintenance.status(oil.copy(doneKm = 1_935_000.0), 199_277.0, now)
+        assertTrue(wrong.badReading && !wrong.known)
     }
 
     @Test

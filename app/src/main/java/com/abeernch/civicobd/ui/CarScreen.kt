@@ -58,6 +58,8 @@ fun CarScreen(
 ) {
     var tick by remember { mutableStateOf(0) }
     val statuses = remember(tick, car.odometerKm) { Maintenance.statuses(settings, car.odometerKm) }
+    // The list itself keeps a fixed order, so rows never move while you edit one.
+    val rows = remember(tick, car.odometerKm) { Maintenance.load(settings).map { Maintenance.status(it, car.odometerKm) } }
     val diag by Diagnostics.state.collectAsState()
     var liveOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -93,11 +95,13 @@ fun CarScreen(
                         style = Type.label,
                     )
                 }
-                statuses.forEach { st ->
+                rows.forEach { st ->
+                    androidx.compose.runtime.key(st.item.key) {
                     ServiceRow(st, car.odometerKm) { updated ->
                         Maintenance.save(settings, Maintenance.load(settings).map { if (it.key == updated.key) updated else it })
                         tick++
                         onServiceChanged()
+                    }
                     }
                 }
             }
@@ -139,54 +143,89 @@ private fun AlertLine(text: String, color: Color) {
     }
 }
 
-/** One service job: name and when it is due, with a thin bar of what is left. Tap to edit or mark done. */
+/**
+ * Colour for how much of a job's interval is left: green with plenty left, through yellow and
+ * orange, to red when due. The same red-yellow-green scale as the route maps.
+ */
+private fun lifeColor(st: ServiceStatus): Color {
+    val life = st.life ?: return Palette.Label
+    return Color(com.abeernch.civicobd.core.Route.color(com.abeernch.civicobd.core.ColorScale.RedYellowGreen, life.toFloat().coerceIn(0f, 1f)))
+}
+
+/**
+ * One service job: name, when it is due, and a bar of what is left. Tap to edit. Values are typed
+ * into the fields and only saved with Save (or Done today), so nothing changes while typing.
+ */
 @Composable
 private fun ServiceRow(st: ServiceStatus, odometerKm: Double?, onChange: (com.abeernch.civicobd.core.ServiceItem) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    val color = when {
-        st.overdue -> Palette.Warning
-        st.soon -> Palette.Caution
-        st.known -> Palette.Accent
-        else -> Palette.Label
-    }
+    val color = lifeColor(st)
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.fillMaxWidth().pressable { open = !open }.padding(vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(st.item.name, style = Type.body, modifier = Modifier.weight(1f))
-                Text(Maintenance.dueText(st), style = Type.label.copy(color = if (st.known) color else Palette.Label))
+                Text(
+                    Maintenance.dueText(st),
+                    style = Type.label.copy(color = when { st.badReading -> Palette.Warning; st.known -> color; else -> Palette.Label }),
+                )
             }
             st.life?.let { life ->
-                Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Palette.Hairline)) {
-                    Box(
-                        Modifier.fillMaxWidth(life.toFloat().coerceIn(0f, 1f)).height(3.dp)
-                            .clip(RoundedCornerShape(2.dp)).background(color)
-                    )
+                // Overdue jobs show a full red bar rather than an empty one.
+                val fill = if (st.overdue) 1f else life.toFloat().coerceIn(0.02f, 1f)
+                Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Palette.Hairline)) {
+                    Box(Modifier.fillMaxWidth(fill).height(4.dp).clip(RoundedCornerShape(2.dp)).background(color))
                 }
             }
         }
         if (open) {
             val item = st.item
-            var every by remember(item) { mutableStateOf(item.everyKm?.let { fmt(it, 0) } ?: "") }
-            var months by remember(item) { mutableStateOf(item.everyMonths?.toString() ?: "") }
-            var doneAt by remember(item) { mutableStateOf(item.doneKm?.let { fmt(it, 0) } ?: "") }
-            NumberField("Every", every, "km") { every = it; onChange(item.copy(everyKm = it.toDoubleOrNull()?.takeIf { v -> v > 0 })) }
-            NumberField("Or every", months, "months") {
-                months = it; onChange(item.copy(everyMonths = it.toDoubleOrNull()?.toInt()?.takeIf { v -> v > 0 }))
-            }
-            NumberField("Last done at", doneAt, "km") { doneAt = it; onChange(item.copy(doneKm = it.toDoubleOrNull())) }
+            var every by remember { mutableStateOf(item.everyKm?.let { fmt(it, 0) } ?: "") }
+            var months by remember { mutableStateOf(item.everyMonths?.toString() ?: "") }
+            var doneAt by remember { mutableStateOf(item.doneKm?.let { fmt(it, 0) } ?: "") }
+            var problem by remember { mutableStateOf<String?>(null) }
+            NumberField("Every", every, "km") { every = it; problem = null }
+            NumberField("Or every", months, "months") { months = it; problem = null }
+            NumberField("Last done at", doneAt, "km") { doneAt = it; problem = null }
             item.doneMs?.let {
                 Text(
                     "Last done " + java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.US).format(java.util.Date(it)),
                     style = Type.label,
                 )
             }
+            problem?.let { Text(it, style = Type.label.copy(color = Palette.Warning), modifier = Modifier.padding(top = 4.dp)) }
             Spacer(Modifier.height(8.dp))
+            OutlineButton("Save", color = Palette.Accent) {
+                val km = doneAt.toDoubleOrNull()
+                problem = when {
+                    km != null && odometerKm != null && km > odometerKm + 50 ->
+                        "That is more than the odometer (" + "%,d".format(odometerKm.toLong()) + " km). Check the number."
+                    km != null && km < 0 -> "Enter a reading of 0 or more."
+                    else -> null
+                }
+                if (problem == null) {
+                    onChange(
+                        item.copy(
+                            everyKm = every.toDoubleOrNull()?.takeIf { it > 0 },
+                            everyMonths = months.toDoubleOrNull()?.toInt()?.takeIf { it > 0 },
+                            doneKm = km,
+                        )
+                    )
+                    open = false
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             OutlineButton(
-                if (odometerKm != null) "Done today, at %,d km".format(odometerKm.toLong()) else "Done today",
-                color = Palette.Accent,
+                if (odometerKm != null) "Done today, at " + "%,d".format(odometerKm.toLong()) + " km" else "Done today",
+                color = Palette.Label,
             ) {
-                doneAt = odometerKm?.let { fmt(it, 0) } ?: doneAt
-                onChange(item.copy(doneKm = odometerKm ?: item.doneKm, doneMs = System.currentTimeMillis()))
+                onChange(
+                    item.copy(
+                        everyKm = every.toDoubleOrNull()?.takeIf { it > 0 } ?: item.everyKm,
+                        everyMonths = months.toDoubleOrNull()?.toInt()?.takeIf { it > 0 } ?: item.everyMonths,
+                        doneKm = odometerKm ?: item.doneKm,
+                        doneMs = System.currentTimeMillis(),
+                    )
+                )
                 open = false
             }
             Spacer(Modifier.height(6.dp))

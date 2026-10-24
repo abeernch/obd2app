@@ -22,6 +22,7 @@ data class ServiceStatus(
     val dueInKm: Double?,
     val dueInDays: Int?,
     val life: Double?, // share of the interval left, 1 just after the job, 0 when due
+    val badReading: Boolean = false, // "last done at" is above the odometer, so it cannot be right
 ) {
     val overdue: Boolean get() = (dueInKm != null && dueInKm < 0) || (dueInDays != null && dueInDays < 0)
     val soon: Boolean get() = !overdue && ((dueInKm != null && dueInKm < 500) || (dueInDays != null && dueInDays < 14))
@@ -91,6 +92,9 @@ object Maintenance {
     }
 
     fun status(item: ServiceItem, odometerKm: Double?, now: Long = System.currentTimeMillis()): ServiceStatus {
+        if (item.doneKm != null && odometerKm != null && item.doneKm > odometerKm + 50) {
+            return ServiceStatus(item, null, null, null, badReading = true)
+        }
         val dueKm = if (item.everyKm != null && item.doneKm != null && odometerKm != null) {
             item.doneKm + item.everyKm - odometerKm
         } else null
@@ -111,6 +115,7 @@ object Maintenance {
 
     /** Plain words for when a job is due, for example "in 1,240 km" or "overdue by 2 months". */
     fun dueText(s: ServiceStatus): String {
+        if (s.badReading) return "reading above odometer, tap to fix"
         if (!s.known) return "not logged yet"
         val parts = mutableListOf<String>()
         s.dueInKm?.let { km ->
