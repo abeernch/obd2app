@@ -121,7 +121,7 @@ fun Splash(onReveal: () -> Unit, onFinished: () -> Unit) {
             Text(
                 "CIVIC",
                 style = Type.title.copy(
-                    fontSize = 26.sp,
+                    fontSize = Type.sz(26f),
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (14f - 8f * word.value).sp,
                 ),

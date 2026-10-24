@@ -36,6 +36,23 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("demo", false)
         set(value) = prefs.edit().putBoolean("demo", value).apply()
 
+    // Appearance, stored as option names: see ui/Theme.kt
+    var mode: String
+        get() = prefs.getString("mode", "Dark") ?: "Dark"
+        set(value) = prefs.edit().putString("mode", value).apply()
+
+    var textSize: String
+        get() = prefs.getString("text_size", "Standard") ?: "Standard"
+        set(value) = prefs.edit().putString("text_size", value).apply()
+
+    var accent: String
+        get() = prefs.getString("accent", "Papaya") ?: "Papaya"
+        set(value) = prefs.edit().putString("accent", value).apply()
+
+    var face: String
+        get() = prefs.getString("face", "Barlow") ?: "Barlow"
+        set(value) = prefs.edit().putString("face", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

@@ -41,6 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.abeernch.civicobd.core.Link
@@ -146,20 +149,41 @@ private fun TabBar(selected: Tab, onPick: (Tab) -> Unit) {
             // so the pill stretches in flight and settles back to its size on arrival.
             val leadFast = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.8f, stiffness = 900f)
             val trailSlow = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.85f, stiffness = 300f)
-            var lastIndex by androidx.compose.runtime.remember { mutableStateOf(selected.ordinal) }
-            val movingRight = selected.ordinal >= lastIndex
-            androidx.compose.runtime.SideEffect { lastIndex = selected.ordinal }
-            val left by animateDpAsState(home, if (movingRight) trailSlow else leadFast, label = "pillLeft")
-            val right by animateDpAsState(home + pillWidth, if (movingRight) leadFast else trailSlow, label = "pillRight")
+            // Direction is fixed once per tab change, so the springs do not swap mid-flight.
+            val previous = androidx.compose.runtime.remember { intArrayOf(selected.ordinal) }
+            val movingRight = androidx.compose.runtime.remember(selected) {
+                val right = selected.ordinal >= previous[0]
+                previous[0] = selected.ordinal
+                right
+            }
+            val left by animateDpAsState(home, if (movingRight) trailSlow else leadFast, label = "glowLeft")
+            val right by animateDpAsState(home + pillWidth, if (movingRight) leadFast else trailSlow, label = "glowRight")
 
+            // A diffused cloud of accent colour behind the chosen icon: brightest at the centre,
+            // fading to nothing, with no edge. It stretches in flight like the pill did.
+            val glow = Palette.Accent
+            val spread = 22.dp
             Box(
                 Modifier
-                    .offset(x = left, y = 2.dp)
-                    .width((right - left).coerceAtLeast(pillWidth / 2))
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(Palette.AccentSoft)
-                    .border(1.dp, Palette.Accent.copy(alpha = 0.55f), RoundedCornerShape(15.dp))
+                    .offset(x = left - spread, y = (-6).dp)
+                    .width((right - left).coerceAtLeast(pillWidth / 2) + spread * 2)
+                    .height(56.dp)
+                    .drawBehind {
+                        val r = size.height / 2
+                        scale(scaleX = size.width / size.height, scaleY = 1f, pivot = center) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0f to glow.copy(alpha = if (Palette.isDark) 0.42f else 0.30f),
+                                    0.45f to glow.copy(alpha = if (Palette.isDark) 0.16f else 0.12f),
+                                    1f to glow.copy(alpha = 0f),
+                                    center = center,
+                                    radius = r,
+                                ),
+                                radius = r,
+                                center = center,
+                            )
+                        }
+                    }
             )
             Row(Modifier.fillMaxWidth()) {
                 Tab.entries.forEach { t ->
@@ -193,7 +217,7 @@ private fun TabButton(tab: Tab, on: Boolean, modifier: Modifier, onClick: () -> 
             tab.label,
             style = Type.label.copy(
                 color = textColor,
-                fontSize = androidx.compose.ui.unit.TextUnit(11.5f, androidx.compose.ui.unit.TextUnitType.Sp),
+                fontSize = Type.sz(13f),
                 fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
             ),
         )

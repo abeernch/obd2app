@@ -1,0 +1,58 @@
+# Packs everything needed to build the app offline (Android SDK parts, every Gradle library,
+# the Gradle distribution) into the "toolchain" release. The development workspace cannot reach
+# Google's download servers directly, but it can download GitHub release files.
+name: Toolchain bundle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/toolchain.yml", "app/build.gradle.kts", "build.gradle.kts"]
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Fetch Gradle 8.9
+        run: |
+          curl -sSfL -o gradle-8.9-bin.zip https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q gradle-8.9-bin.zip
+
+      - name: Build once with a fresh Gradle home, so it holds every dependency
+        env:
+          GRADLE_USER_HOME: ${{ github.workspace }}/ghome
+        run: |
+          ./gradle-8.9/bin/gradle testDebugUnitTest assembleDebug --no-daemon -q
+          ./gradle-8.9/bin/gradle dependencies --no-daemon -q > /dev/null || true
+
+      - name: Pack
+        run: |
+          mkdir -p bundle
+          tar -czf bundle/gradle-home.tgz -C ghome caches/modules-2
+          BT=$(ls $ANDROID_HOME/build-tools | grep "^34" | sort -V | tail -1)
+          echo "build-tools $BT"
+          tar -czf bundle/android-sdk.tgz -C $ANDROID_HOME platforms/android-34 build-tools/$BT licenses
+          cp gradle-8.9-bin.zip bundle/
+          cd bundle && for f in *; do
+            size=$(stat -c%s "$f")
+            if [ "$size" -gt 1900000000 ]; then split -b 1900m "$f" "$f.part-" && rm "$f"; fi
+          done
+          ls -la
+
+      - name: Publish toolchain release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete toolchain --yes --cleanup-tag || true
+          gh release create toolchain bundle/* --prerelease --title "Offline toolchain" \
+            --notes "Android SDK 34 parts, Gradle 8.9 and all Gradle dependencies for offline builds."

@@ -8,6 +8,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.res.Configuration
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
+import com.abeernch.civicobd.core.Backup
+import com.abeernch.civicobd.ui.Appearance
+import com.abeernch.civicobd.ui.Palette
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -56,6 +64,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var store: TripStore
     private lateinit var recordings: Recordings
 
+    private val pickBackup =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) restoreBackup(uri) }
+
+    // Bumped whenever an appearance setting changes, so the theme is re-applied.
+    private var appearanceTick by mutableStateOf(0)
+
     private val pickFiles =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> importFiles(uris) }
 
@@ -102,7 +116,25 @@ class MainActivity : ComponentActivity() {
             requestBatteryExemption()
         }
 
+        // Apply the saved look before the first frame, so there is no flash of the wrong theme.
+        val systemDarkNow = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        Appearance.apply(settings, systemDarkNow)
+
         setContent {
+            val systemDark = isSystemInDarkTheme()
+            val tick = appearanceTick
+            SideEffect {
+                Appearance.apply(settings, systemDark)
+                // Status and navigation bars follow the theme, with dark icons on the light theme.
+                window.statusBarColor = Palette.Background.toArgb()
+                window.navigationBarColor = Palette.Surface.toArgb()
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !Palette.isDark
+                    isAppearanceLightNavigationBars = !Palette.isDark
+                }
+                if (tick < 0) Unit // keeps the tick read, so a change re-runs this effect
+            }
             val live by LiveBus.state.collectAsState()
             var todayRows by remember { mutableStateOf(emptyList<TripRow>()) }
             var weekRows by remember { mutableStateOf(emptyList<TripRow>()) }
@@ -155,9 +187,46 @@ class MainActivity : ComponentActivity() {
                         paired = pairedDevices(),
                         onChanged = { LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) } },
                         onBattery = ::requestBatteryExemption,
+                        onAppearance = { appearanceTick++ },
+                        onBackup = ::backupAll,
+                        onRestore = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
                     )
                 }
             }
+        }
+    }
+
+    // ---- Backup ----
+
+    private fun backupAll() {
+        lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) { Backup.create(this@MainActivity, exportDir()) }
+            shareFile(file, "application/zip")
+        }
+    }
+
+    /** Replaces all data with the backup, then restarts the app so every part reopens the new database. */
+    private fun restoreBackup(uri: Uri) {
+        lifecycleScope.launch {
+            val error = withContext(Dispatchers.IO) {
+                try {
+                    stopService(Intent(this@MainActivity, ObdService::class.java))
+                    contentResolver.openInputStream(uri)!!.use { Backup.restore(this@MainActivity, it) }
+                    null
+                } catch (e: Exception) {
+                    e.message ?: "Restore failed"
+                }
+            }
+            if (error != null) {
+                Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                ObdService.start(this@MainActivity)
+                return@launch
+            }
+            Toast.makeText(this@MainActivity, "Backup restored. Restarting.", Toast.LENGTH_SHORT).show()
+            val again = Intent(this@MainActivity, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            startActivity(again)
+            Runtime.getRuntime().exit(0)
         }
     }
 
@@ -227,10 +296,10 @@ class MainActivity : ComponentActivity() {
 
     private fun exportDir(): File = File(cacheDir, "exports").apply { mkdirs() }
 
-    private fun shareFile(file: File) {
+    private fun shareFile(file: File, mime: String = "text/csv") {
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
+            type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, file.name)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

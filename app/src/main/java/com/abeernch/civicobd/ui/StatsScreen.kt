@@ -165,7 +165,7 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
                 val barHeight by animateDpAsState(target, Motion.glide(), label = "bar")
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (showValues) {
-                        Text(fmt(value, decimals), style = Type.label.copy(fontSize = 10.sp), maxLines = 1)
+                        Text(fmt(value, decimals), style = Type.label.copy(fontSize = Type.sz(13f)), maxLines = 1)
                         Spacer(Modifier.height(4.dp))
                     }
                     // Slim bars, never wider than 28 dp, so one or two days do not turn into slabs.
@@ -186,7 +186,7 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
             buckets.forEach { b ->
                 Text(
                     if (showValues || buckets.size <= 16) b.label else "",
-                    style = Type.label.copy(fontSize = 10.sp),
+                    style = Type.label.copy(fontSize = Type.sz(13f)),
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -229,11 +229,17 @@ private fun TripCard(t: TripRow) {
 
 /** A single-choice row of text chips. The chosen one gets a cyan outline. */
 @Composable
-fun <T> Chips(options: List<T>, selected: T, label: (T) -> String, onPick: (T) -> Unit) {
+fun <T> Chips(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    inset: androidx.compose.ui.unit.Dp = 20.dp,
+    onPick: (T) -> Unit,
+) {
     Row(
         Modifier
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = inset),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEach { option ->
@@ -242,7 +248,7 @@ fun <T> Chips(options: List<T>, selected: T, label: (T) -> String, onPick: (T) -
             val fill by animateColorAsState(if (on) Palette.AccentSoft else Palette.Background, Motion.fade(250), label = "chipFill")
             Text(
                 label(option),
-                style = Type.body.copy(color = if (on) Palette.Value else Palette.Label, fontSize = 13.sp),
+                style = Type.body.copy(color = if (on) Palette.Value else Palette.Label, fontSize = Type.sz(15f)),
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
                     .background(fill)

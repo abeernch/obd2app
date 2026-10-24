@@ -33,10 +33,11 @@ import java.util.Date
 import java.util.Locale
 
 /** Line colours for combined plots: white, papaya, then hues that stay readable on black. */
-val SeriesColors = listOf(
-    Color(0xFFF5F5F2), Color(0xFFFF8000), Color(0xFF4CC9E0), Color(0xFF7BD389),
-    Color(0xFFB69CF2), Color(0xFFF28CB1), Color(0xFFE8E37A), Color(0xFF8AB4F8),
-)
+val SeriesColors: List<Color>
+    get() = listOf(
+        Palette.Value, Palette.Accent, Color(0xFF4CC9E0), Color(0xFF7BD389),
+        Color(0xFFB69CF2), Color(0xFFF28CB1), Color(0xFFE8B84A), Color(0xFF8AB4F8),
+    )
 
 /**
  * Shared between all charts of one recording, so zoom and the marker stay in step
@@ -80,7 +81,7 @@ fun LineChart(
     height: Dp,
 ) {
     val measurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(fontFamily = B612, fontSize = 10.sp, color = Palette.Label)
+    val labelStyle = TextStyle(fontFamily = Sans, fontSize = Type.sz(12f), color = Palette.Label)
     val clock = SimpleDateFormat("HH:mm", Locale.US)
     val clockSec = SimpleDateFormat("HH:mm:ss", Locale.US)
 
@@ -118,8 +119,8 @@ fun LineChart(
                 }
             }
     ) {
-        val left = if (normalised) 0f else 40.dp.toPx()
-        val bottom = size.height - 18.dp.toPx()
+        val left = if (normalised) 0f else 46.dp.toPx()
+        val bottom = size.height - 22.dp.toPx()
         val top = 6.dp.toPx()
         val w = size.width - left
         val span = (view.end - view.start).toFloat().coerceAtLeast(1f)

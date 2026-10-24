@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveState
 import com.abeernch.civicobd.core.Summary
@@ -60,7 +61,7 @@ fun DriveScreen(live: LiveState, today: Summary) {
         Spacer(Modifier.height(24.dp))
         val heroTint by androidx.compose.animation.animateColorAsState(heroColor, Motion.fade(400), label = "hero")
         RollingNumber(heroValue, Type.hero.copy(color = heroTint))
-        Text(heroUnit, style = Type.label)
+        Text(heroUnit, style = Type.label.copy(fontSize = Type.sz(18f)))
         Spacer(Modifier.height(16.dp))
         EconomyBar(instant = d.instantKmL, average = trip.kmPerL)
         Spacer(Modifier.height(28.dp))

@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -19,20 +22,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Type scale. Tabular figures stop digits from shifting sideways as they change.
+// Type scale, sized to read at arm's length in a car mount, multiplied by the chosen text size.
+// Every style is computed on use, so a change of size, typeface or colours applies at once.
+// Tabular figures stop digits from shifting sideways as they change.
 object Type {
-    val label = TextStyle(fontFamily = B612, fontSize = 12.sp, color = Palette.Label, letterSpacing = 0.2.sp)
-    val body = TextStyle(fontFamily = B612, fontSize = 14.sp, color = Palette.Value, fontFeatureSettings = "tnum")
-    val title = TextStyle(fontFamily = B612, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Value)
-    val value = TextStyle(
-        fontFamily = B612, fontSize = 26.sp, fontWeight = FontWeight.Bold,
-        color = Palette.Value, fontFeatureSettings = "tnum",
+    var scale by mutableStateOf(1f)
+
+    /** A font size in sp, scaled by the chosen text size. Use instead of a fixed `n.sp`. */
+    fun sz(n: Float) = (n * scale).sp
+
+    val label: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(15f), color = Palette.Label, letterSpacing = 0.1.sp)
+    val section: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(15f), fontWeight = FontWeight.Medium, color = Palette.Label, letterSpacing = 0.3.sp)
+    val body: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(17f), color = Palette.Value, fontFeatureSettings = "tnum")
+    val title: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(24f), fontWeight = FontWeight.SemiBold, color = Palette.Value)
+    val value: TextStyle get() = TextStyle(
+        fontFamily = Numeric, fontSize = sz(38f), fontWeight = FontWeight.Bold,
+        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(42f),
     )
-    val hero = TextStyle(
-        fontFamily = B612, fontSize = 84.sp, fontWeight = FontWeight.Bold,
-        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = 88.sp,
+    val hero: TextStyle get() = TextStyle(
+        fontFamily = Numeric, fontSize = sz(120f), fontWeight = FontWeight.Bold,
+        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(118f),
     )
-    val mono = TextStyle(fontFamily = B612Mono, fontSize = 11.sp, color = Palette.Label, lineHeight = 16.sp)
+    val mono: TextStyle get() = TextStyle(fontFamily = Mono, fontSize = sz(12f), color = Palette.Label, lineHeight = sz(17f))
 }
 
 /** Formats a number, or "--" when there is no reading yet. */
@@ -49,7 +60,7 @@ fun duration(seconds: Double): String {
 @Composable
 fun Section(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier.fillMaxWidth()) {
-        Text(title, style = Type.label)
+        Text(title, style = Type.section)
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
         Spacer(Modifier.height(4.dp))
@@ -61,10 +72,10 @@ fun Section(title: String, modifier: Modifier = Modifier, content: @Composable (
 @Composable
 fun ReadingRow(name: String, value: String, unit: String = "", color: Color = Palette.Value) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        Modifier.fillMaxWidth().padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(name, style = Type.label.copy(fontSize = 13.sp), modifier = Modifier.weight(1f))
+        Text(name, style = Type.label.copy(fontSize = Type.sz(16f)), modifier = Modifier.weight(1f))
         Text(value, style = Type.body.copy(color = color), textAlign = TextAlign.End)
         if (unit.isNotEmpty()) {
             Text("  $unit", style = Type.label)
@@ -75,8 +86,9 @@ fun ReadingRow(name: String, value: String, unit: String = "", color: Color = Pa
 /** A big number with its name and unit underneath. */
 @Composable
 fun Tile(name: String, value: String, unit: String, modifier: Modifier = Modifier, color: Color = Palette.Value) {
-    Column(modifier.padding(vertical = 10.dp)) {
+    Column(modifier.padding(vertical = 12.dp)) {
         RollingNumber(value, Type.value.copy(color = color))
-        Text(if (unit.isEmpty()) name else "$name  $unit", style = Type.label)
+        Spacer(Modifier.height(2.dp))
+        Text(if (unit.isEmpty()) name else "$name  $unit", style = Type.label, maxLines = 1)
     }
 }

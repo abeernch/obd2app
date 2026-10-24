@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,6 +39,9 @@ fun SettingsScreen(
     paired: List<PairedDevice>,
     onChanged: () -> Unit,
     onBattery: () -> Unit,
+    onAppearance: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     var price by remember { mutableStateOf(fmt(settings.fuelPrice, 0)) }
     var factor by remember { mutableStateOf(fmt(settings.fuelFactor, 2)) }
@@ -97,6 +101,56 @@ fun SettingsScreen(
             }
         }
 
+        Section("Appearance") {
+            // Re-read on every change so the chips always show what is saved.
+            var tick by remember { mutableStateOf(0) }
+            fun changed() { tick++; onAppearance() }
+            key(tick) {
+                Spacer(Modifier.height(10.dp))
+                Text("Presets", style = Type.label)
+                Spacer(Modifier.height(8.dp))
+                val current = Preset.entries.firstOrNull {
+                    it.mode == Appearance.mode(settings) && it.size == Appearance.size(settings) &&
+                        it.accent == Appearance.accent(settings) && it.face == Appearance.face(settings)
+                }
+                Chips(Preset.entries.toList(), current, { it.label }, inset = 0.dp) {
+                    Appearance.applyPreset(settings, it); changed()
+                }
+                OptionRow("Mode") {
+                    Chips(Mode.entries.toList(), Appearance.mode(settings), { it.label }, inset = 0.dp) {
+                        settings.mode = it.name; changed()
+                    }
+                }
+                OptionRow("Text size") {
+                    Chips(TextSize.entries.toList(), Appearance.size(settings), { it.label }, inset = 0.dp) {
+                        settings.textSize = it.name; changed()
+                    }
+                }
+                OptionRow("Accent") {
+                    Chips(Accent.entries.toList(), Appearance.accent(settings), { it.label }, inset = 0.dp) {
+                        settings.accent = it.name; changed()
+                    }
+                }
+                OptionRow("Typeface") {
+                    Chips(Face.entries.toList(), Appearance.face(settings), { it.label }, inset = 0.dp) {
+                        settings.face = it.name; changed()
+                    }
+                }
+            }
+        }
+
+        Section("Backup") {
+            Text(
+                "One file with every trip, recording, fill-up and setting. Keep a copy in Drive, " +
+                    "and restore it after reinstalling or on a new phone.",
+                style = Type.label,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            OutlineButton("Back up everything", onClick = onBackup)
+            Spacer(Modifier.height(10.dp))
+            OutlineButton("Restore from a backup", color = Palette.Label, onClick = onRestore)
+        }
+
         Section("Demo") {
             var demo by remember { mutableStateOf(settings.demo) }
             Text(
@@ -154,5 +208,14 @@ private fun NumberField(name: String, value: String, unit: String, onChange: (St
                 .padding(horizontal = 10.dp, vertical = 8.dp),
         )
         Text("  $unit", style = Type.label)
+    }
+}
+
+@Composable
+private fun OptionRow(name: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        Text(name, style = Type.label)
+        Spacer(Modifier.height(8.dp))
+        content()
     }
 }

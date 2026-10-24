@@ -276,7 +276,7 @@ private fun Readout(shown: List<Series>, view: ChartView, combined: Boolean) {
                 val dot = if (combined) SeriesColors[i % SeriesColors.size] else Palette.Value
                 Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
                 Spacer(Modifier.width(8.dp))
-                Text(s.channel.name, style = Type.label.copy(fontSize = 12.sp), modifier = Modifier.weight(1f))
+                Text(s.channel.name, style = Type.label.copy(fontSize = Type.sz(15f)), modifier = Modifier.weight(1f))
                 Text(if (j >= 0) compact(s.v[j]) else "--", style = Type.body)
                 Text("  ${s.channel.unit}", style = Type.label)
             }

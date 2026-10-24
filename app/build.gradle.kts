@@ -15,7 +15,7 @@ android {
         targetSdk = 32
         // The build pipeline passes the run number, so every APK has a higher version.
         versionCode = (System.getenv("BUILD_NUMBER") ?: "1").toInt()
-        versionName = "0.8." + (System.getenv("BUILD_NUMBER") ?: "1")
+        versionName = "0.9." + (System.getenv("BUILD_NUMBER") ?: "1")
     }
 
     // One fixed key, so a new APK installs over the old one without uninstalling.

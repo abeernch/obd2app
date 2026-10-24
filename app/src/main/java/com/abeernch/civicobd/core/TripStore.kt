@@ -128,5 +128,11 @@ class TripStore private constructor(context: Context) :
             instance ?: synchronized(this) {
                 instance ?: TripStore(context.applicationContext).also { instance = it }
             }
+
+        /** Closes the database so a backup can replace its file. The app restarts right after. */
+        fun closeForRestore() = synchronized(this) {
+            instance?.close()
+            instance = null
+        }
     }
 }
