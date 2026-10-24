@@ -9,6 +9,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -83,19 +86,33 @@ fun CarCard(status: com.abeernch.civicobd.core.CarStatus) {
             .padding(16.dp)
     ) {
         Text("Car", style = Type.section)
-        Spacer(Modifier.height(4.dp))
-        ReadingRow("Odometer", "%,d".format(status.odometerKm.toLong()), "km")
         val due = status.oilDueInKm
-        if (due != null) {
-            ReadingRow(
-                if (due < 0) "Oil change overdue by" else "Oil change in",
-                "%,d".format(kotlin.math.abs(due).toLong()), "km",
-                color = when {
-                    due < 0 -> Palette.Warning
-                    due < 500 -> Palette.Caution
-                    else -> Palette.Value
-                },
-            )
+        val oilColor = when {
+            due == null -> Palette.Label
+            due < 0 -> Palette.Warning
+            due < 500 -> Palette.Caution
+            else -> Palette.Accent
+        }
+        // Smaller than the screen's main tiles, so a six-digit odometer and the oil figure sit side by side.
+        val big = Type.value.copy(fontSize = Type.sz(30f), lineHeight = Type.sz(34f))
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("%,d".format(status.odometerKm.toLong()), style = big, maxLines = 1)
+                Text("Odometer  km", style = Type.label, maxLines = 1)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(due?.let { "%,d".format(kotlin.math.abs(it).toLong()) } ?: "--", style = big.copy(color = oilColor), maxLines = 1)
+                Text(if (due != null && due < 0) "Oil overdue  km" else "Oil change in  km", style = Type.label, maxLines = 1)
+            }
+        }
+        // Oil life: how much of the change interval is left, in the same colour.
+        status.oilLife?.let { life ->
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Palette.Hairline)) {
+                Box(Modifier.fillMaxWidth(life.toFloat().coerceIn(0f, 1f)).height(4.dp).clip(RoundedCornerShape(2.dp)).background(oilColor))
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("Oil life ${(life * 100).toInt().coerceIn(0, 100)}%", style = Type.label)
         }
     }
 }

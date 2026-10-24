@@ -432,8 +432,8 @@ private fun MapReadout(live: LiveState, vertical: Boolean, modifier: Modifier) {
 }
 
 /**
- * A thin line from 0 to 30 km/L. The white fill is the instant value,
- * the cyan tick is the trip average, so you can see at a glance if you are above or below it.
+ * A thin line from 0 to 30 km/L. The accent fill is the instant value,
+ * the white tick is the trip average, so you can see at a glance if you are above or below it.
  */
 @Composable
 private fun EconomyBar(instant: Double?, average: Double?) {
@@ -444,23 +444,24 @@ private fun EconomyBar(instant: Double?, average: Double?) {
     val mark by animateFloatAsState(
         ((average ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), Motion.glide(), label = "mark",
     )
+    val accent = Palette.Accent
+    val tick = Palette.Value
+    val track = Palette.Hairline
     Column {
-        Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(8.dp)) {
             val y = size.height / 2
             val w = size.width
-            drawLine(Palette.Hairline, Offset(0f, y), Offset(w, y), 3.dp.toPx(), StrokeCap.Round)
-            if (fill > 0f) drawLine(Palette.Value, Offset(0f, y), Offset(w * fill, y), 3.dp.toPx(), StrokeCap.Round)
+            drawLine(track, Offset(0f, y), Offset(w, y), 2.dp.toPx(), StrokeCap.Round)
+            if (fill > 0f) drawLine(accent, Offset(0f, y), Offset(w * fill, y), 2.dp.toPx(), StrokeCap.Round)
             if (average != null) {
-                drawLine(
-                    Palette.Accent, Offset(w * mark, 0f), Offset(w * mark, size.height),
-                    2.dp.toPx(), StrokeCap.Round,
-                )
+                drawLine(tick, Offset(w * mark, 0f), Offset(w * mark, size.height), 1.5.dp.toPx(), StrokeCap.Round)
             }
         }
+        val small = Type.label.copy(fontSize = Type.sz(12f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("0", style = Type.label)
-            Text(if (average != null) "trip average ${fmt(average)}" else "", style = Type.label.copy(color = Palette.Accent))
-            Text("30", style = Type.label)
+            Text("0", style = small)
+            Text(if (average != null) "trip average ${fmt(average)}" else "", style = small.copy(color = Palette.Value))
+            Text("30", style = small)
         }
     }
 }

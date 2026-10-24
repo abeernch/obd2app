@@ -4,6 +4,7 @@ package com.abeernch.civicobd.core
 data class CarStatus(
     val odometerKm: Double?,    // estimated reading now
     val oilDueInKm: Double?,    // negative when overdue
+    val oilLife: Double? = null, // share of the change interval still left, 1.0 just after a change
 )
 
 object Car {
@@ -12,6 +13,6 @@ object Car {
         val since = store.between(settings.odometerAtMs, now).sumOf { it.distanceKm } + liveTripKm
         val odo = base + since
         val oil = settings.oilChangedAtKm?.let { it + settings.oilIntervalKm - odo }
-        return CarStatus(odo, oil)
+        return CarStatus(odo, oil, oil?.let { it / settings.oilIntervalKm })
     }
 }
