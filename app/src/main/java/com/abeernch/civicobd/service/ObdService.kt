@@ -96,6 +96,7 @@ class ObdService : Service() {
     private suspend fun mainLoop() {
         val bt = getSystemService(BluetoothManager::class.java)?.adapter
         while (true) {
+            fillFromGps(System.currentTimeMillis())
             checkTripEnd(System.currentTimeMillis())
 
             if (settings.demo) {
@@ -181,6 +182,7 @@ class ObdService : Service() {
                 // Only a real answer counts ("41 00" and the supported-PID bits), never a stray reply.
                 if (!first.ok || Pids.supported(first, 0x00).isEmpty()) {
                     misses++
+                    fillFromGps(System.currentTimeMillis())
                     checkTripEnd(System.currentTimeMillis())
                     val volts = readVoltage(elm) // also proves the link is still alive
                     // Above about 13.3 V the alternator is charging, so the engine is running.
@@ -278,11 +280,14 @@ class ObdService : Service() {
             yield()
             val start = System.currentTimeMillis()
 
-            // Fast tier every cycle: everything the fuel model needs.
-            val codes = mutableListOf(0x0C, 0x0D, 0x0B, 0x11)
-            if (cycle % 3 == 0) codes += listOf(0x0F, 0x04, 0x0E)
+            // First tier, every cycle: engine speed, road speed and intake pressure, which give
+            // instant economy, gear and the shift light. Then one more reading per cycle in turn:
+            // throttle every second cycle (needed to spot fuel cut), and the rest, which change slowly
+            // or matter less (intake air, coolant, load, timing), once in eight cycles each.
+            // Over the slow K-line each request costs about 0.2 s, so this keeps cycles short.
+            val codes = mutableListOf(0x0C, 0x0D, 0x0B)
+            codes += EXTRA_ROTATION[cycle % EXTRA_ROTATION.size]
             val slow = start - lastSlowMs > 5_000
-            if (slow) codes += 0x05
 
             val values = HashMap(LiveBus.state.value.values)
             var answered = 0
@@ -297,6 +302,7 @@ class ObdService : Service() {
             }
 
             if (answered == 0) {
+                fillFromGps(System.currentTimeMillis())
                 fails++
                 if (fails >= 3) {
                     LiveBus.log("Engine computer stopped answering")
@@ -444,7 +450,9 @@ class ObdService : Service() {
         if (rpm > 0) {
             lastRunningMs = now
             if (!trip.active) openTrip(now)
-            val dt = d.dtS
+            // Never count time twice: after a gap filled from GPS, only the time since then is added.
+            val dt = if (lastTickMs > 0) minOf(d.dtS, (now - lastTickMs) / 1000.0).coerceAtLeast(0.0) else d.dtS
+            lastTickMs = now
             trip = trip.copy(
                 distanceKm = trip.distanceKm + speed * dt / 3600.0,
                 fuelL = trip.fuelL + (d.fuelLph ?: 0.0) * dt / 3600.0,
@@ -472,7 +480,8 @@ class ObdService : Service() {
     // ---- 1 Hz recording, with Car Scanner's parameter names so both apps chart alike ----
 
     private fun recordSamples(values: Map<Int, Double>, d: Derived, now: Long) {
-        if (recId < 0 || now - lastSampleMs < 1_000) return
+        // Every polling cycle is recorded (about 1.5 per second), at most one sample per 0.4 s.
+        if (recId < 0 || now - lastSampleMs < 400) return
         val sinceLastS = if (lastSampleMs == 0L) 1.0 else ((now - lastSampleMs) / 1000.0).coerceAtMost(5.0)
         lastSampleMs = now
         fun add(name: String, unit: String, value: Double?) {
@@ -536,6 +545,44 @@ class ObdService : Service() {
         )
     }
 
+    // Last time the trip totals moved forward, from engine data or from GPS.
+    private var lastTickMs = 0L
+
+    /**
+     * While the engine computer is silent in the middle of a trip, keeps distance, time and the
+     * route going from GPS. A car still moving also keeps the trip open, so it is not ended early.
+     */
+    private fun fillFromGps(now: Long) {
+        if (!trip.active || settings.demo) return
+        val fix = route.latest ?: return
+        if (now - fix.atMs > 5_000) return
+        val kmh = fix.speedKmh ?: return
+        val dt = if (lastTickMs > 0) ((now - lastTickMs) / 1000.0).coerceIn(0.0, 30.0) else 0.0
+        lastTickMs = now
+        if (kmh > 5) lastRunningMs = now
+        trip = trip.copy(
+            distanceKm = trip.distanceKm + kmh * dt / 3600.0,
+            driveS = trip.driveS + if (kmh >= 1) dt else 0.0,
+            idleS = trip.idleS + if (kmh < 1) dt else 0.0,
+            maxSpeed = maxOf(trip.maxSpeed, kmh),
+        )
+        if (recId >= 0 && now - lastSampleMs >= 1_000) {
+            lastSampleMs = now
+            fun add(name: String, unit: String, value: Double?) {
+                if (value != null && !value.isNaN()) pending += com.abeernch.civicobd.core.Sample(now, name, unit, value)
+            }
+            add("Latitude", "°", fix.lat)
+            add("Longitude", "°", fix.lon)
+            add("Speed (GPS)", "km/h", fix.speedKmh)
+            add("Altitude (GPS)", "m", fix.altitudeM)
+            add("GPS accuracy", "m", fix.accuracyM)
+            add("Distance travelled", "km", trip.distanceKm)
+            publishPosition(fix, Derived())
+        }
+        LiveBus.update { it.copy(trip = trip) }
+        if (now - lastSavedMs > 10_000) saveTrip(now)
+    }
+
     private fun flushSamples(now: Long) {
         if (recId < 0) return
         recordings.add(recId, pending.toList())
@@ -558,9 +605,12 @@ class ObdService : Service() {
         refreshWidget(force = false)
     }
 
-    /** Ends the trip after 90 s without the engine running, whether the link is up or not. */
+    /**
+     * Ends the trip once the car has been parked for 60 s: engine not running and, by GPS, not
+     * moving. A stall that is restarted within the minute stays part of the same trip.
+     */
     private fun checkTripEnd(now: Long) {
-        if (trip.active && now - lastRunningMs > 90_000) closeTrip(lastRunningMs)
+        if (trip.active && now - lastRunningMs > 60_000) closeTrip(lastRunningMs)
     }
 
     private var lastWidgetMs = 0L
@@ -584,6 +634,7 @@ class ObdService : Service() {
             store.delete(trip.id)
         }
         recId = -1
+        lastTickMs = 0L
         route.stop()
         headingFrom = null
         bearing = null
@@ -636,6 +687,9 @@ class ObdService : Service() {
     }
 
     companion object {
+        /** The one extra reading taken in each polling cycle, in turn. */
+        private val EXTRA_ROTATION = listOf(0x11, 0x0F, 0x11, 0x05, 0x11, 0x04, 0x11, 0x0E)
+
         private const val CHANNEL = "car"
         private const val NOTE_ID = 1
 

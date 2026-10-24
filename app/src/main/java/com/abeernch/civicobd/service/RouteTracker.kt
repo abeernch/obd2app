@@ -13,7 +13,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** One GPS fix. */
-data class Fix(val lat: Double, val lon: Double, val speedKmh: Double?, val altitudeM: Double?, val accuracyM: Double?)
+data class Fix(
+    val lat: Double, val lon: Double, val speedKmh: Double?, val altitudeM: Double?, val accuracyM: Double?,
+    val atMs: Long = System.currentTimeMillis(),
+)
 
 /**
  * GPS during trips only, once a second. The latest fix is read by the recorder,
