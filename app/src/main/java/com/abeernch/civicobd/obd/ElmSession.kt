@@ -27,7 +27,12 @@ class ElmSession(
 ) {
     private val mutex = Mutex()
 
+    // Set when a command timed out: its answer may still be on the way, and must not be
+    // taken as the answer to the next command.
+    private var outOfStep = false
+
     suspend fun send(command: String, timeoutMs: Long = 2000): ElmReply = mutex.withLock {
+        if (outOfStep) resync()
         val start = System.currentTimeMillis()
         drainInput()
         transport.output.write((command + "\r").toByteArray(Charsets.US_ASCII))
@@ -61,7 +66,40 @@ class ElmSession(
             else -> reply.text
         }
         log("> $command   ${elapsed} ms   $status")
+        if (reply.timedOut) outOfStep = true
         reply
+    }
+
+    /**
+     * Gets back in step after a timeout: waits for the late prompt of the unfinished command
+     * and throws its answer away. If the adapter is still busy, one byte makes it stop and
+     * show the prompt (the ELM327 treats any character as "stop").
+     */
+    private suspend fun resync() {
+        if (!waitForPrompt(4_000)) {
+            transport.output.write(" ".toByteArray(Charsets.US_ASCII))
+            transport.output.flush()
+            waitForPrompt(1_500)
+        }
+        delay(30)
+        drainInput()
+        outOfStep = false
+        log("  back in step with the adapter")
+    }
+
+    private suspend fun waitForPrompt(timeoutMs: Long): Boolean {
+        val start = System.currentTimeMillis()
+        val input = transport.input
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (input.available() > 0) {
+                val c = input.read()
+                if (c < 0) throw IOException("Adapter closed the link")
+                if (c.toChar() == '>') return true
+            } else {
+                delay(5)
+            }
+        }
+        return false
     }
 
     /** Throws away anything left over from a previous command. */

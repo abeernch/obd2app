@@ -174,16 +174,37 @@ class ObdService : Service() {
         try {
             val elm = ElmSession(link) { LiveBus.log(it) }
             initAdapter(elm)
+            var misses = 0
             while (settings.demo == demo) {
                 // Wake the engine computer. It stays silent while the ignition is off.
                 val first = elm.send("0100", timeoutMs = 12_000)
-                if (!first.ok) {
-                    setLink(Link.EngineOff, "Connected. Waiting for ignition")
+                // Only a real answer counts ("41 00" and the supported-PID bits), never a stray reply.
+                if (!first.ok || Pids.supported(first, 0x00).isEmpty()) {
+                    misses++
                     checkTripEnd(System.currentTimeMillis())
-                    delay(8_000)
-                    readVoltage(elm) // also proves the link is still alive
+                    val volts = readVoltage(elm) // also proves the link is still alive
+                    // Above about 13.3 V the alternator is charging, so the engine is running.
+                    val engineRunning = volts != null && volts >= 13.3
+                    setLink(
+                        Link.EngineOff,
+                        if (engineRunning) "Engine on. Reaching the engine computer" else "Connected. Waiting for ignition",
+                    )
+                    // After the car has been off, the adapter can believe its K-line link is still open and
+                    // answer NO DATA at once without trying. Closing the protocol makes the next request
+                    // start again with the slow ISO 9141-2 handshake.
+                    elm.send("ATPC")
+                    if (engineRunning && misses % 3 == 0) {
+                        // Engine clearly on but still silent: reset the adapter. Every second time,
+                        // let it search for the protocol itself in case the saved one is wrong.
+                        val search = misses % 6 == 0
+                        LiveBus.log("Engine running (%.1f V) but no answer: resetting the adapter%s"
+                            .format(volts, if (search) " and searching for the protocol" else ""))
+                        initAdapter(elm, search)
+                    }
+                    delay(if (engineRunning) 2_000 else 8_000)
                     continue
                 }
+                misses = 0
                 val ready = afterWake(elm, first)
                 poll(elm, ready.first, ready.second)
             }
@@ -192,13 +213,20 @@ class ObdService : Service() {
         }
     }
 
-    private suspend fun initAdapter(elm: ElmSession) {
+    private suspend fun initAdapter(elm: ElmSession, search: Boolean = false) {
         elm.send("ATZ", timeoutMs = 3000)
         delay(300)
         for (cmd in listOf("ATE0", "ATL0", "ATS0", "ATH0", "ATAT1")) elm.send(cmd)
         val version = elm.send("ATI").text
         val saved = settings.protocol
-        elm.send(if (saved != null) "ATSP$saved" else "ATSP0")
+        // "ATSPA3" tries the saved protocol first and searches if it fails; "ATSP3" sticks to it.
+        elm.send(
+            when {
+                saved == null -> "ATSP0"
+                search -> "ATSPA$saved"
+                else -> "ATSP$saved"
+            }
+        )
         LiveBus.update { it.copy(adapter = version) }
     }
 

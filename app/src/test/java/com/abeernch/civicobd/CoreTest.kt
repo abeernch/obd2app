@@ -174,4 +174,53 @@ class CoreTest {
         it.mkdirs()
         it
     }
+
+    /**
+     * From the 24 Oct drive log: 0100 timed out, its answer came late, and every later reply was
+     * read one command behind ("0100 -> 11.9V"). The session must wait out the late answer.
+     */
+    @Test
+    fun lateReplyIsNotTakenAsTheNextAnswer() = runBlocking {
+        val link = SlowAdapter(lateMs = 400)
+        val elm = ElmSession(link) { }
+        val first = elm.send("0100", timeoutMs = 100)
+        assertTrue(first.timedOut)
+        val volts = elm.send("ATRV", timeoutMs = 2_000)
+        assertEquals("14.2V", volts.text)
+        val again = elm.send("0100", timeoutMs = 2_000)
+        assertTrue(Pids.supported(again, 0).isNotEmpty())
+    }
+
+    /** A fake adapter: "0100" answers after a delay, everything else at once. */
+    private class SlowAdapter(private val lateMs: Long) : com.abeernch.civicobd.obd.Transport {
+        private val toPhone = java.util.concurrent.LinkedBlockingQueue<Int>()
+        private var first0100 = true
+        // One worker, like the real chip: a command is answered only after the one before it.
+        private val chip = java.util.concurrent.Executors.newSingleThreadExecutor()
+        override val input = object : java.io.InputStream() {
+            override fun read(): Int = toPhone.take()
+            override fun available(): Int = toPhone.size
+        }
+        private val line = StringBuilder()
+        override val output = object : java.io.OutputStream() {
+            override fun write(b: Int) {
+                val c = b.toChar()
+                if (c != '\r') { line.append(c); return }
+                val cmd = line.toString().trim(); line.clear()
+                val answer = when (cmd) {
+                    "0100" -> "41 00 BE 1F B8 10"
+                    "ATRV" -> "14.2V"
+                    else -> "OK"
+                }
+                val wait = if (cmd == "0100" && first0100) lateMs else 0L
+                if (cmd == "0100") first0100 = false
+                chip.execute {
+                    Thread.sleep(wait)
+                    ("$answer\r\r>").forEach { toPhone.put(it.code) }
+                }
+            }
+        }
+        override fun connect() {}
+        override fun close() {}
+    }
 }
