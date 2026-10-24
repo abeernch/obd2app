@@ -53,7 +53,7 @@ class ObdService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var settings: AppSettings
     private lateinit var store: TripStore
-    private val metrics = MetricEngine()
+    private lateinit var metrics: MetricEngine
 
     private var trip = TripTotals()
     private var lastRunningMs = 0L
@@ -63,6 +63,7 @@ class ObdService : Service() {
 
     private lateinit var recordings: com.abeernch.civicobd.core.Recordings
     private lateinit var events: Events
+    private lateinit var route: RouteTracker
     private var recId = -1L
     private var lastSampleMs = 0L
     private val pending = ArrayList<com.abeernch.civicobd.core.Sample>()
@@ -75,6 +76,8 @@ class ObdService : Service() {
         store = TripStore.get(this)
         recordings = com.abeernch.civicobd.core.Recordings(store)
         events = Events(store)
+        route = RouteTracker(this)
+        metrics = MetricEngine(settings.gearRatios.split(",").mapNotNull { it.toDoubleOrNull() }.takeIf { it.size == 5 })
         createChannel()
         startForeground(NOTE_ID, note("Waiting for the car"))
         scope.launch { mainLoop() }
@@ -431,6 +434,7 @@ class ObdService : Service() {
         val id = store.insert(TripRow(startMs = now, endMs = now))
         trip = TripTotals(id = id, startMs = now)
         recId = recordings.create(now, "Live", "Drive", id)
+        if (!settings.demo) route.start()
         lastSavedMs = now
         LiveBus.log("Trip started")
         LiveBus.tripsChanged()
@@ -440,6 +444,7 @@ class ObdService : Service() {
 
     private fun recordSamples(values: Map<Int, Double>, d: Derived, now: Long) {
         if (recId < 0 || now - lastSampleMs < 1_000) return
+        val sinceLastS = if (lastSampleMs == 0L) 1.0 else ((now - lastSampleMs) / 1000.0).coerceAtMost(5.0)
         lastSampleMs = now
         fun add(name: String, unit: String, value: Double?) {
             if (value != null && !value.isNaN()) pending += com.abeernch.civicobd.core.Sample(now, name, unit, value)
@@ -465,6 +470,14 @@ class ObdService : Service() {
         add("Instant engine power (based on fuel consumption)", "hp", d.powerHp)
         add("Calculated boost", "psi", d.boostKpa?.let { it * 0.145038 })
         add("Gear", "", d.gear.toDouble())
+        if (settings.demo) route.demoStep(values[0x0D] ?: 0.0, sinceLastS)
+        route.latest?.let { fix ->
+            add("Latitude", "°", fix.lat)
+            add("Longitude", "°", fix.lon)
+            add("Speed (GPS)", "km/h", fix.speedKmh)
+            add("Altitude (GPS)", "m", fix.altitudeM)
+            add("GPS accuracy", "m", fix.accuracyM)
+        }
         if (pending.size >= 100) flushSamples(now)
     }
 
@@ -509,12 +522,14 @@ class ObdService : Service() {
         if (!trip.active) return
         saveTrip(endMs)
         flushSamples(endMs)
+        settings.gearRatios = metrics.ratios().joinToString(",") { "%.3f".format(java.util.Locale.US, it) }
         if (trip.distanceKm < 0.1) {
             // Engine started but the car did not move: keep nothing.
             if (recId >= 0) recordings.delete(recId, withTrip = false)
             store.delete(trip.id)
         }
         recId = -1
+        route.stop()
         LiveBus.log("Trip ended: %.1f km".format(trip.distanceKm))
         trip = TripTotals()
         LiveBus.update { it.copy(trip = trip) }

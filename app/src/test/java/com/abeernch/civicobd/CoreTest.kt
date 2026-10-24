@@ -121,6 +121,54 @@ class CoreTest {
         assertEquals(0.0, d.fuelLph!!, 1e-9)
     }
 
+    @Test
+    fun parsesFaultCodes() {
+        val codes = com.abeernch.civicobd.core.Diagnostics.parseCodes(listOf("430133014200", "430000000000"), 3)
+        assertEquals(listOf("P0133", "P0142"), codes.map { it.code })
+        assertEquals("C0123", com.abeernch.civicobd.core.Diagnostics.decode("4123")!!.code)
+        assertEquals("U0100", com.abeernch.civicobd.core.Diagnostics.decode("C100")!!.code)
+        assertTrue(codes[0].description.contains("Oxygen sensor"))
+    }
+
+    @Test
+    fun simulatedCarReportsAndClearsACode() = runBlocking {
+        val sim = SimTransport()
+        sim.connect()
+        val elm = ElmSession(sim) {}
+        val before = com.abeernch.civicobd.core.Diagnostics.parseCodes(elm.send("03").lines, 3)
+        assertEquals(listOf("P0456"), before.map { it.code })
+        assertTrue(elm.send("04").lines.any { it.startsWith("44") })
+        val after = com.abeernch.civicobd.core.Diagnostics.parseCodes(elm.send("03").lines, 3)
+        assertTrue(after.isEmpty())
+    }
+
+    @Test
+    fun routeColoursStopsAndPrivacyTrim() {
+        val pts = (0 until 120).map { i ->
+            com.abeernch.civicobd.core.RoutePoint(
+                t = 1_000_000L + i * 1000L, lat = 33.68 + i * 0.0001, lon = 73.04, km = i * 0.011,
+                speed = if (i in 40..70) 0.0 else 40.0, kmPerL = if (i in 40..70) null else 10.0 + i % 10,
+                fuelRate = 1.5, rpm = 2000.0, throttle = 15.0, accel = 0.0, gear = 3.0, altitude = 500.0,
+            )
+        }
+        val stops = com.abeernch.civicobd.core.Route.stops(pts)
+        assertEquals(1, stops.size)
+        assertTrue(stops[0].seconds >= 30)
+        val green = com.abeernch.civicobd.core.Route.color(com.abeernch.civicobd.core.ColorScale.RedYellowGreen, 1f)
+        val red = com.abeernch.civicobd.core.Route.color(com.abeernch.civicobd.core.ColorScale.RedYellowGreen, 0f)
+        assertTrue((green shr 8 and 0xFF) > (green shr 16 and 0xFF)) // more green than red
+        assertTrue((red shr 16 and 0xFF) > (red shr 8 and 0xFF))     // more red than green
+        val trimmed = com.abeernch.civicobd.core.Route.trimForPrivacy(pts, 200.0)
+        assertTrue(trimmed.first().km >= 0.2 && trimmed.last().km <= pts.last().km - 0.2)
+    }
+
+    @Test
+    fun readsPetrolPriceFromPageText() {
+        val html = "<table><tr><td><a>Petrol Super Price in Pakistan</a></td><td>377.71 Rs./Ltr</td></tr></table>"
+        assertEquals(377.71, com.abeernch.civicobd.core.PetrolPrice.parse(html)!!, 1e-9)
+        assertEquals(null, com.abeernch.civicobd.core.PetrolPrice.parse("<p>no prices today</p>"))
+    }
+
     private fun createTempDir(): File = File.createTempFile("civic", "").let {
         it.delete()
         it.mkdirs()

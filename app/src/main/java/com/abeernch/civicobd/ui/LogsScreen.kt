@@ -56,8 +56,51 @@ fun LogsScreen(
     onImport: () -> Unit,
     onExport: (RecordingRow, List<Series>, ExportKind) -> Unit,
     onDelete: (RecordingRow) -> Unit,
+    settings: com.abeernch.civicobd.core.AppSettings,
+    onExportRoute: (RecordingRow, List<com.abeernch.civicobd.core.RoutePoint>, Boolean, com.abeernch.civicobd.core.ColorScale, Pair<Double, Double>) -> Unit,
 ) {
     var open by remember { mutableStateOf<RecordingRow?>(null) }
+    var mapFor by remember { mutableStateOf<RecordingRow?>(null) }
+    var route by remember { mutableStateOf<List<com.abeernch.civicobd.core.RoutePoint>?>(null) }
+    var heat by remember { mutableStateOf<List<com.abeernch.civicobd.core.HeatCell>?>(null) }
+    var heatOpen by remember { mutableStateOf(false) }
+
+    // Route map for one recording
+    val mapRec = mapFor
+    if (mapRec != null) {
+        LaunchedEffect(mapRec.id) { route = withContext(Dispatchers.IO) { com.abeernch.civicobd.core.Route.load(recordings, mapRec.id) } }
+        val loaded = route
+        if (loaded == null || loaded.size < 2) {
+            BackHandler { mapFor = null; route = null }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (loaded == null) "Loading route..." else "This recording has no usable GPS track.", style = Type.label)
+            }
+        } else {
+            RouteMapScreen(
+                loaded,
+                SimpleDateFormat("d MMM, HH:mm", Locale.US).format(Date(mapRec.startMs)),
+                settings,
+                onBack = { mapFor = null; route = null },
+                onExport = { gpx, scale, range -> onExportRoute(mapRec, loaded, gpx, scale, range) },
+            )
+        }
+        return
+    }
+    // Economy of every road stretch, all drives together
+    if (heatOpen) {
+        LaunchedEffect(version) {
+            heat = withContext(Dispatchers.IO) {
+                com.abeernch.civicobd.core.Heatmap.build(recordings.all().map { com.abeernch.civicobd.core.Route.load(recordings, it.id) })
+            }
+        }
+        val cells = heat
+        if (cells == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Building the fuel map...", style = Type.label) }
+        } else {
+            HeatMapScreen(cells, settings) { heatOpen = false }
+        }
+        return
+    }
     var list by remember { mutableStateOf(emptyList<RecordingRow>()) }
     LaunchedEffect(version) { list = withContext(Dispatchers.IO) { recordings.all() } }
 
@@ -67,7 +110,7 @@ fun LogsScreen(
         RecordingView(recordings, current, onBack = { open = null }, onExport = onExport, onDelete = {
             onDelete(current)
             open = null
-        })
+        }, onMap = { mapFor = current })
         return
     }
 
@@ -77,6 +120,8 @@ fun LogsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
+            OutlineButton("Fuel map of all drives", color = Palette.Accent) { heat = null; heatOpen = true }
+            Spacer(Modifier.height(10.dp))
             OutlineButton("Import Car Scanner CSV", onClick = onImport)
             Spacer(Modifier.height(12.dp))
             Text(
@@ -122,6 +167,7 @@ private fun RecordingView(
     onBack: () -> Unit,
     onExport: (RecordingRow, List<Series>, ExportKind) -> Unit,
     onDelete: () -> Unit,
+    onMap: () -> Unit,
 ) {
     var channels by remember { mutableStateOf(emptyList<Channel>()) }
     val loaded = remember { mutableStateOf(mapOf<Long, Series>()) }
@@ -172,6 +218,13 @@ private fun RecordingView(
                     style = Type.label.copy(color = Palette.Accent),
                     modifier = Modifier.pressable { view.reset() }.padding(4.dp),
                 )
+            }
+        }
+        if (channels.any { it.name.equals("Latitude", ignoreCase = true) || it.name.contains("Latitude") }) {
+            item {
+                Column(Modifier.padding(horizontal = 20.dp)) {
+                    OutlineButton("Route map", color = Palette.Accent, onClick = onMap)
+                }
             }
         }
         item {

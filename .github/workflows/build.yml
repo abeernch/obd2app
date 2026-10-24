@@ -30,11 +30,18 @@ jobs:
       - name: Test and build
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+          SIGNING_KEY_B64: ${{ secrets.SIGNING_KEY_B64 }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         # On failure, each compiler error or failed test is also printed as a workflow annotation,
         # which can be read through the public API without signing in.
         run: |
           set -o pipefail
-          if ! gradle testDebugUnitTest assembleDebug --no-daemon 2>&1 | tee build.log; then
+          # Optional release key from encrypted secrets; without it the repository key is used.
+          if [ -n "$SIGNING_KEY_B64" ]; then
+            echo "$SIGNING_KEY_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            export SIGNING_KEY_FILE="$RUNNER_TEMP/release.keystore"
+          fi
+          if ! gradle testDebugUnitTest assembleDebug assembleUitest --no-daemon 2>&1 | tee build.log; then
             grep -E "^e: |error:|What went wrong|FAILED|AssertionError|expected:<|Exception" -A2 build.log | head -80 | while IFS= read -r line; do
               echo "::error::${line}"
             done
@@ -47,7 +54,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/uitest/app-uitest.apk
 
       - name: Publish latest release
         env:
@@ -68,7 +75,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: apk
-          path: app/build/outputs/apk/debug
+          path: app/build/outputs/apk/uitest
 
       - name: Enable KVM
         run: |

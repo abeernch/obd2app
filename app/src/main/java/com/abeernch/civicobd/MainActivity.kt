@@ -16,6 +16,7 @@ import com.abeernch.civicobd.core.FuelLog
 import com.abeernch.civicobd.core.Tank
 import com.abeernch.civicobd.ui.CarCard
 import com.abeernch.civicobd.ui.FuelScreen
+import com.abeernch.civicobd.ui.HudScreen
 import com.abeernch.civicobd.ui.TankCard
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -95,17 +96,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
+        // Map tiles are cached inside the app's own folders; the user agent identifies the app to the tile server.
+        org.osmdroid.config.Configuration.getInstance().apply {
+            userAgentValue = packageName
+            osmdroidBasePath = File(filesDir, "osmdroid")
+            osmdroidTileCache = File(cacheDir, "osmdroid-tiles")
+        }
         store = TripStore.get(this)
         recordings = Recordings(store)
         fuel = FuelLog(store)
         LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
 
         // Automated test hooks: "demo" starts the simulated car, "import_path" imports a CSV from a file path.
-        if (intent.hasExtra("demo")) {
+        // They exist only in the emulator test build, so no other app can trigger them on the phone.
+        if (BuildConfig.TEST_HOOKS && intent.hasExtra("demo")) {
             settings.demo = intent.getBooleanExtra("demo", false)
             settings.askedBattery = true
         }
-        intent.getStringExtra("import_path")?.let { path ->
+        intent.getStringExtra("import_path")?.takeIf { BuildConfig.TEST_HOOKS }?.let { path ->
             lifecycleScope.launch {
                 val message = withContext(Dispatchers.IO) {
                     val file = File(path)
@@ -119,6 +127,8 @@ class MainActivity : ComponentActivity() {
         val needed = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) needed += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= 33) needed += "android.permission.POST_NOTIFICATIONS"
+        needed += Manifest.permission.ACCESS_FINE_LOCATION
+        needed += Manifest.permission.ACCESS_COARSE_LOCATION
         val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -208,9 +218,23 @@ class MainActivity : ComponentActivity() {
                 if (live.trip.active && settings.showDriveOnStart) driveJump++
             }
 
+            // Head-up display: full screen, full brightness, screen kept on.
+            var hud by remember { mutableStateOf(false) }
+            DisposableEffect(hud) {
+                val attrs = window.attributes
+                attrs.screenBrightness = if (hud) 1f else android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                window.attributes = attrs
+                if (hud) view.keepScreenOn = true
+                onDispose { if (hud) view.keepScreenOn = awake }
+            }
+            if (hud) {
+                HudScreen(live) { hud = false }
+                return@setContent
+            }
+
             AppShell(live, driveJump) { tab ->
                 when (tab) {
-                    Tab.Drive -> DriveScreen(live, today, tank)
+                    Tab.Drive -> DriveScreen(live, today, tank, onHud = { hud = true })
                     Tab.Sensors -> SensorsScreen(live, today, week, total, onShareLog = ::shareLog, starts = starts)
                     Tab.Stats -> if (fuelOpen) {
                         FuelScreen(
@@ -232,6 +256,8 @@ class MainActivity : ComponentActivity() {
                         version = live.tripsVersion,
                         onImport = { pickFiles.launch(arrayOf("text/*", "application/octet-stream", "*/*")) },
                         onExport = { rec, _, kind -> exportRecording(rec, kind) },
+                        settings = settings,
+                        onExportRoute = { rec, pts, gpx, scale, range -> exportRoute(rec, pts, gpx, scale, range) },
                         onDelete = { rec ->
                             lifecycleScope.launch(Dispatchers.IO) {
                                 recordings.delete(rec.id, withTrip = rec.source != "Live")
@@ -247,6 +273,8 @@ class MainActivity : ComponentActivity() {
                             LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
                         },
                         onBattery = ::requestBatteryExemption,
+                        onLocationAlways = ::requestBackgroundLocation,
+                        locationStatus = locationStatus(),
                         onAppearance = { appearanceTick++ },
                         onBackup = ::backupAll,
                         onRestore = { pickBackup.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
@@ -347,6 +375,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** GPX or KML of a route, with the first and last stretch removed for privacy if chosen. */
+    private fun exportRoute(
+        rec: RecordingRow,
+        points: List<com.abeernch.civicobd.core.RoutePoint>,
+        gpx: Boolean,
+        scale: com.abeernch.civicobd.core.ColorScale,
+        range: Pair<Double, Double>,
+    ) {
+        lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                val trimmed = com.abeernch.civicobd.core.Route.trimForPrivacy(points, settings.privacyTrimM)
+                val name = "civic-route_" + java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm", java.util.Locale.US).format(java.util.Date(rec.startMs))
+                if (gpx) com.abeernch.civicobd.core.RouteExport.gpx(exportDir(), name, trimmed)
+                else com.abeernch.civicobd.core.RouteExport.kml(exportDir(), name, trimmed, scale, range)
+            }
+            shareFile(file, if (gpx) "application/gpx+xml" else "application/vnd.google-earth.kml+xml")
+        }
+    }
+
     private fun exportTrips(trips: List<TripRow>) {
         lifecycleScope.launch {
             val file = withContext(Dispatchers.IO) { CsvExport.trips(exportDir(), trips) }
@@ -365,6 +412,29 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, "Export ${file.name}"))
+    }
+
+    private val askBackgroundLocation =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { appearanceTick++ }
+
+    /** Routes are recorded by the background service, so location must be allowed "all the time". */
+    private fun requestBackgroundLocation() {
+        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine) {
+            askPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            askBackgroundLocation.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+    }
+
+    private fun locationStatus(): String {
+        fun has(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+        return when {
+            !has(Manifest.permission.ACCESS_FINE_LOCATION) -> "Off. Routes are not recorded."
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !has(Manifest.permission.ACCESS_BACKGROUND_LOCATION) ->
+                "Only while the app is open. Routes may be missed when it starts on its own."
+            else -> "Allowed all the time."
+        }
     }
 
     private fun startServiceIfAllowed() {

@@ -96,6 +96,16 @@ class AppSettings(context: Context) {
         get() = prefs.getString("gear_ratios", "") ?: ""
         set(value) = prefs.edit().putString("gear_ratios", value).apply()
 
+    /** Route map colour scale ("Parula" or "RedYellowGreen"). */
+    var routeScale: String
+        get() = prefs.getString("route_scale", "Parula") ?: "Parula"
+        set(value) = prefs.edit().putString("route_scale", value).apply()
+
+    /** Metres left off the start and end of routes in exports, so home and work are not shown. 0 = off. */
+    var privacyTrimM: Double
+        get() = prefs.getFloat("privacy_trim_m", 200f).toDouble()
+        set(value) = prefs.edit().putFloat("privacy_trim_m", value.toFloat()).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

@@ -1,6 +1,7 @@
 package com.abeernch.civicobd.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -31,7 +32,12 @@ import com.abeernch.civicobd.core.Summary
  * Everything else sits in fixed places below it.
  */
 @Composable
-fun DriveScreen(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank? = null) {
+fun DriveScreen(
+    live: LiveState,
+    today: Summary,
+    tank: com.abeernch.civicobd.core.Tank? = null,
+    onHud: () -> Unit = {},
+) {
     val d = live.derived
     val speed = live.values[0x0D]
     val rpm = live.values[0x0C]
@@ -58,7 +64,16 @@ fun DriveScreen(live: LiveState, today: Summary, tank: com.abeernch.civicobd.cor
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ShiftCue(rpm, d, Modifier.weight(1f))
+            Spacer(Modifier.width(16.dp))
+            Text(
+                "HUD", style = Type.label.copy(color = Palette.Accent, fontSize = Type.sz(16f)),
+                modifier = Modifier.pressable(onClick = onHud).padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
         val heroTint by androidx.compose.animation.animateColorAsState(heroColor, Motion.fade(400), label = "hero")
         RollingNumber(heroValue, Type.hero.copy(color = heroTint))
         Text(heroUnit, style = Type.label.copy(fontSize = Type.sz(18f)))
@@ -151,5 +166,47 @@ private fun EconomyBar(instant: Double?, average: Double?) {
             Text(if (average != null) "trip average ${fmt(average)}" else "", style = Type.label.copy(color = Palette.Accent))
             Text("30", style = Type.label)
         }
+    }
+}
+
+
+/**
+ * Shift light: a bar that fills as engine speed approaches the upshift point for the current
+ * throttle, and turns accent when it is time to shift. "Shift down" replaces it when lugging.
+ */
+@Composable
+fun ShiftCue(rpm: Double?, d: com.abeernch.civicobd.core.Derived, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 10.dp) {
+    val target = d.shiftAtRpm
+    val fill by animateFloatAsState(
+        if (rpm != null && target != null) ((rpm - target * 0.6) / (target * 0.4)).toFloat().coerceIn(0f, 1f) else 0f,
+        Motion.settle(), label = "shift",
+    )
+    val hot = d.shiftUp || d.lugging
+    val color by androidx.compose.animation.animateColorAsState(
+        when {
+            d.lugging -> Palette.Caution
+            d.shiftUp -> Palette.Accent
+            else -> Palette.Value.copy(alpha = 0.55f)
+        },
+        Motion.fade(200), label = "shiftColor",
+    )
+    Column(modifier) {
+        Canvas(Modifier.fillMaxWidth().height(height)) {
+            val r = size.height / 2
+            drawRoundRect(Palette.Hairline, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+            val w = if (d.lugging) size.width else size.width * fill
+            if (w > 0f) {
+                drawRoundRect(color, size = androidx.compose.ui.geometry.Size(w, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+            }
+        }
+        Text(
+            when {
+                d.lugging -> "Shift down"
+                d.shiftUp -> "Shift up"
+                target != null -> "Shift at ${fmt(target, 0)} rpm"
+                else -> " "
+            },
+            style = Type.label.copy(color = if (hot) color else Palette.Label),
+        )
     }
 }

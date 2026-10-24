@@ -15,6 +15,9 @@ data class Derived(
     val gear: Int = 0,                // 0 means neutral or clutch pressed
     val fuelCut: Boolean = false,
     val dtS: Double = 0.0,            // seconds since the previous step
+    val shiftAtRpm: Double? = null,   // upshift point for the current throttle, null when not relevant
+    val shiftUp: Boolean = false,     // engine speed has reached the upshift point
+    val lugging: Boolean = false,     // too few rpm for the load: shift down
 )
 
 object FuelModel {
@@ -34,11 +37,19 @@ object FuelModel {
         airGps(mapKpa, rpm, iatC) / AFR / PETROL_G_PER_L * 3600.0 * factor
 }
 
-class MetricEngine {
+class MetricEngine(learned: List<Double>? = null) {
 
     // Speed in km/h per 1000 RPM for gears 1 to 5. Third gear was measured on 23 Oct
-    // (about 20.5). The others are scaled from typical 7th-gen Civic ratios.
-    private val kmhPer1000 = listOf(8.1, 13.6, 20.5, 26.7, 34.8)
+    // (about 20.5). The others start from typical 7th-gen Civic ratios, then each one
+    // is refined from your own steady driving (see learn()).
+    private val kmhPer1000 = (learned?.takeIf { it.size == 5 } ?: DEFAULT_RATIOS).toMutableList()
+
+    /** Current gear ratios, for saving between drives. */
+    fun ratios(): List<Double> = kmhPer1000.toList()
+
+    companion object {
+        val DEFAULT_RATIOS = listOf(8.1, 13.6, 20.5, 26.7, 34.8)
+    }
 
     private var closedThrottle = 100.0
     private var baroKpa = 95.0          // replaced by MAP whenever the engine is off
@@ -114,6 +125,31 @@ class MetricEngine {
         }
         if (gearCount >= 2) gear = gearCandidate
 
+        // Gear learning: in steady driving the speed-to-rpm ratio is exact for the gear in use,
+        // so nudge that gear's stored ratio towards it. Slow, so one odd sample changes little.
+        if (gear > 0 && rpm != null && speed != null && speed > 20 && kotlin.math.abs(accel) < 0.03 &&
+            throttleRel != null && throttleRel in 3.0..60.0
+        ) {
+            val ratio = speed / (rpm / 1000.0)
+            val i = gear - 1
+            if (kotlin.math.abs(ratio - kmhPer1000[i]) / kmhPer1000[i] < 0.08) {
+                kmhPer1000[i] = kmhPer1000[i] * 0.98 + ratio * 0.02
+            }
+        }
+
+        // Shift guidance. The upshift point rises with throttle: about 2,500 rpm when cruising
+        // gently, up to 5,500 rpm at full throttle. While the engine is cold it stays low.
+        val coolant = v[0x05]
+        var shiftAt: Double? = null
+        var shiftUp = false
+        var lugging = false
+        if (gear in 1..4 && rpm != null && speed != null && speed > 5 && throttleRel != null && !fuelCut) {
+            shiftAt = 2500.0 + (throttleRel / 100.0).coerceIn(0.0, 1.0) * 3000.0
+            if (coolant != null && coolant < 70) shiftAt = minOf(shiftAt, 3000.0)
+            shiftUp = rpm >= shiftAt
+        }
+        if (gear >= 2 && rpm != null && rpm < 1300 && throttleRel != null && throttleRel > 40) lugging = true
+
         return Derived(
             throttleRel = throttleRel,
             fuelLph = fuelLph,
@@ -125,6 +161,9 @@ class MetricEngine {
             gear = gear,
             fuelCut = fuelCut,
             dtS = dtS,
+            shiftAtRpm = shiftAt,
+            shiftUp = shiftUp,
+            lugging = lugging,
         )
     }
 

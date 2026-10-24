@@ -5,7 +5,7 @@ set -u
 PKG=com.abeernch.civicobd
 OUT=ui-test
 mkdir -p "$OUT"
-APK=app/build/outputs/apk/debug/app-debug.apk
+APK=app/build/outputs/apk/uitest/app-uitest.apk
 
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "shot $1"; }
 
@@ -43,6 +43,9 @@ tap_text() {
 adb install -r "$APK"
 adb shell pm grant $PKG android.permission.BLUETOOTH_CONNECT || true
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
+adb shell pm grant $PKG android.permission.ACCESS_FINE_LOCATION || true
+adb shell pm grant $PKG android.permission.ACCESS_COARSE_LOCATION || true
+adb shell pm grant $PKG android.permission.ACCESS_BACKGROUND_LOCATION || true
 adb shell settings put global window_animation_scale 1
 adb shell settings put global transition_animation_scale 1
 adb shell settings put global animator_duration_scale 1
@@ -92,31 +95,57 @@ sleep 1
 wait $REC
 adb pull /sdcard/tabs.mp4 "$OUT/tabs.mp4"
 
-# 4. Coasting with fuel cut, then each screen.
-sleep 22; shot 05_drive_fuel_cut
+# 4. Coasting with fuel cut, HUD, then each screen.
+sleep 18; shot 05_drive_fuel_cut
+tap_text "HUD"; sleep 3; shot 05b_hud
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Sensors"; sleep 2; shot 06_sensors_top
 adb shell input swipe 540 1700 540 500 400; sleep 1.5; shot 07_sensors_engine
-adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08_sensors_diagnostics
-tap_text "Settings"; sleep 2; shot 09_settings
+adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08_sensors_faults
+tap_text "Read codes now"; sleep 4; shot 08b_sensors_faults_read
+adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_sensors_battery
+tap_text "Settings"; sleep 2; shot 09_settings_top
+adb shell input swipe 540 1800 540 300 400; sleep 1.5; shot 09b_settings_appearance
+tap_text "Daylight"; sleep 2; shot 09c_settings_light
+tap_text "Drive"; sleep 2; shot 09d_drive_light
+tap_text "Settings"; sleep 2
+tap_text "Grand prix"; sleep 2; shot 09e_settings_grandprix
+tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
+tap_text "Settings"; sleep 2
+tap_text "Papaya night"; sleep 2
 
-# 5. Wait for the demo engine-off phase so the trip closes, then statistics.
-sleep 120
+# 5. Wait for the demo engine-off phase so the trip closes, then statistics and fuel.
+sleep 100
 tap_text "Stats"; sleep 2; shot 10_stats_week
+tap_text "Fill-ups"; sleep 2; shot 10b_fuel
+tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
+adb shell input keyevent KEYCODE_BACK; sleep 1
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Today"; sleep 2; shot 11_stats_today
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 
-# 6. Logs: list, open the imported recording, read values, combined plot.
+# 6. Logs: list, the imported recording's charts, then the demo drive's route map.
 tap_text "Logs"; sleep 2; shot 13_logs_list
 tap_text "Car Scanner"; sleep 3; shot 14_recording_separate
-adb shell input tap 700 900; sleep 1.5; shot 15_recording_marker
+adb shell input tap 700 1000; sleep 1.5; shot 15_recording_marker
 tap_text "One plot"; sleep 2; shot 16_recording_combined
-adb shell input tap 500 1000; sleep 1.5; shot 17_recording_combined_marker
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
-tap_text "Live" 0 || tap_text "Demo" 0; sleep 3; shot 18_recording_demo
+tap_text "Live" 0; sleep 3; shot 18_recording_demo
+tap_text "Route map"; sleep 8; shot 20_route_map
+# Press and hold on the middle of the map, then slide: the marker should follow the route.
+adb shell input swipe 540 900 540 902 1500; sleep 1; shot 21_route_hold
+adb shell input swipe 540 900 700 1000 2500; sleep 1; shot 22_route_scrub
+tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
+tap_text "Speed"; sleep 2; shot 24_route_speed
+adb shell input swipe 540 2000 540 1500 400; sleep 1.5; shot 25_route_lower
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+tap_text "Fuel map of all drives"; sleep 8; shot 26_fuel_map
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
 # 7. Connection log from the app itself.
 tap_text "Sensors"; sleep 1
-for i in 1 2 3 4; do adb shell input swipe 540 1800 540 300 300; sleep 0.5; done
+for i in 1 2 3 4 5 6; do adb shell input swipe 540 1800 540 300 300; sleep 0.5; done
 shot 19_sensors_log
 adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" 2>&1 || true
 adb shell dumpsys activity services $PKG | head -40 > "$OUT/service_state.txt" || true

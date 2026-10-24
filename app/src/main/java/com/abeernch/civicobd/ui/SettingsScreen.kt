@@ -40,6 +40,8 @@ fun SettingsScreen(
     onChanged: () -> Unit,
     onBattery: () -> Unit,
     onAppearance: () -> Unit,
+    onLocationAlways: () -> Unit = {},
+    locationStatus: String = "",
     onBackup: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -102,6 +104,23 @@ fun SettingsScreen(
                 style = Type.label,
                 modifier = Modifier.padding(top = 6.dp),
             )
+        }
+
+        Section("Route recording") {
+            ReadingRow("Location", locationStatus)
+            Text(
+                "GPS is used only while a trip is running. Routes stay on this phone.",
+                style = Type.label,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            OutlineButton("Allow location all the time", color = Palette.Accent, onClick = onLocationAlways)
+            Spacer(Modifier.height(14.dp))
+            Text("Leave out the start and end of routes in GPX and KML exports", style = Type.label)
+            Spacer(Modifier.height(8.dp))
+            var trim by remember { mutableStateOf(settings.privacyTrimM) }
+            Chips(listOf(0.0, 200.0, 500.0), trim, { if (it == 0.0) "Off" else "${it.toInt()} m" }, inset = 0.dp) {
+                trim = it; settings.privacyTrimM = it
+            }
         }
 
         Section("While driving") {
