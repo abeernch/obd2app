@@ -53,16 +53,19 @@ fun HudScreen(live: LiveState, onExit: () -> Unit) {
             ShiftCue(rpm, d, height = 18.dp)
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    if (running) fmt(speed, 0) else "--",
-                    style = Type.hero.copy(color = bright, fontSize = Type.sz(190f), lineHeight = Type.sz(190f)),
+                    if (running) fmt(speed, 0) else "–",
+                    style = Type.hero.copy(
+                        color = if (running) bright else Color(0xFF555555),
+                        fontSize = Type.sz(190f), lineHeight = Type.sz(190f),
+                    ),
                 )
                 Text("km/h", style = Type.label.copy(color = Color(0xFFBDBDBD), fontSize = Type.sz(22f)))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                HudFigure(if (!running) "--" else if (d.gear == 0) "N" else d.gear.toString(), "gear", bright)
+                HudFigure(if (!running) "–" else if (d.gear == 0) "N" else d.gear.toString(), "gear", bright)
                 HudFigure(
                     when {
-                        !running -> "--"
+                        !running -> "–"
                         d.fuelCut -> "cut"
                         else -> fmt(d.instantKmL)
                     },

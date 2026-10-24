@@ -101,7 +101,8 @@ tap_text "HUD"; sleep 3; shot 05b_hud
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Sensors"; sleep 2; shot 06_sensors_top
 adb shell input swipe 540 1700 540 500 400; sleep 1.5; shot 07_sensors_engine
-adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08_sensors_faults
+for i in 1 2 3; do adb shell input swipe 540 1700 540 400 300; sleep 0.5; done
+sleep 1; shot 08_sensors_faults
 tap_text "Read codes now"; sleep 4; shot 08b_sensors_faults_read
 adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_sensors_battery
 tap_text "Settings"; sleep 2; shot 09_settings_top
@@ -119,7 +120,6 @@ sleep 100
 tap_text "Stats"; sleep 2; shot 10_stats_week
 tap_text "Fill-ups"; sleep 2; shot 10b_fuel
 tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
-adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "Today"; sleep 2; shot 11_stats_today
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips

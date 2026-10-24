@@ -56,6 +56,44 @@ fun SettingsScreen(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
+        Section("Appearance") {
+            // Re-read on every change so the chips always show what is saved.
+            var tick by remember { mutableStateOf(0) }
+            fun changed() { tick++; onAppearance() }
+            key(tick) {
+                Spacer(Modifier.height(10.dp))
+                Text("Presets", style = Type.label)
+                Spacer(Modifier.height(8.dp))
+                val current = Preset.entries.firstOrNull {
+                    it.mode == Appearance.mode(settings) && it.size == Appearance.size(settings) &&
+                        it.accent == Appearance.accent(settings) && it.face == Appearance.face(settings)
+                }
+                Chips<Preset?>(Preset.entries.toList(), current, { it?.label ?: "" }, inset = 0.dp) { p ->
+                    if (p != null) { Appearance.applyPreset(settings, p); changed() }
+                }
+                OptionRow("Mode") {
+                    Chips(Mode.entries.toList(), Appearance.mode(settings), { it.label }, inset = 0.dp) {
+                        settings.mode = it.name; changed()
+                    }
+                }
+                OptionRow("Text size") {
+                    Chips(TextSize.entries.toList(), Appearance.size(settings), { it.label }, inset = 0.dp) {
+                        settings.textSize = it.name; changed()
+                    }
+                }
+                OptionRow("Accent") {
+                    Chips(Accent.entries.toList(), Appearance.accent(settings), { it.label }, inset = 0.dp) {
+                        settings.accent = it.name; changed()
+                    }
+                }
+                OptionRow("Typeface") {
+                    Chips(Face.entries.toList(), Appearance.face(settings), { it.label }, inset = 0.dp) {
+                        settings.face = it.name; changed()
+                    }
+                }
+            }
+        }
+
         Section("Fuel") {
             NumberField("Petrol price", price, "PKR/L") {
                 price = it
@@ -166,44 +204,6 @@ fun SettingsScreen(
                         Text(d.address, style = Type.label)
                     }
                     if (on) Text("in use", style = Type.label.copy(color = Palette.Accent))
-                }
-            }
-        }
-
-        Section("Appearance") {
-            // Re-read on every change so the chips always show what is saved.
-            var tick by remember { mutableStateOf(0) }
-            fun changed() { tick++; onAppearance() }
-            key(tick) {
-                Spacer(Modifier.height(10.dp))
-                Text("Presets", style = Type.label)
-                Spacer(Modifier.height(8.dp))
-                val current = Preset.entries.firstOrNull {
-                    it.mode == Appearance.mode(settings) && it.size == Appearance.size(settings) &&
-                        it.accent == Appearance.accent(settings) && it.face == Appearance.face(settings)
-                }
-                Chips<Preset?>(Preset.entries.toList(), current, { it?.label ?: "" }, inset = 0.dp) { p ->
-                    if (p != null) { Appearance.applyPreset(settings, p); changed() }
-                }
-                OptionRow("Mode") {
-                    Chips(Mode.entries.toList(), Appearance.mode(settings), { it.label }, inset = 0.dp) {
-                        settings.mode = it.name; changed()
-                    }
-                }
-                OptionRow("Text size") {
-                    Chips(TextSize.entries.toList(), Appearance.size(settings), { it.label }, inset = 0.dp) {
-                        settings.textSize = it.name; changed()
-                    }
-                }
-                OptionRow("Accent") {
-                    Chips(Accent.entries.toList(), Appearance.accent(settings), { it.label }, inset = 0.dp) {
-                        settings.accent = it.name; changed()
-                    }
-                }
-                OptionRow("Typeface") {
-                    Chips(Face.entries.toList(), Appearance.face(settings), { it.label }, inset = 0.dp) {
-                        settings.face = it.name; changed()
-                    }
                 }
             }
         }
