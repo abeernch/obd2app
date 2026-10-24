@@ -34,4 +34,14 @@ class Events(private val store: TripStore) {
         }
         return out
     }
+
+    /**
+     * Removes "engine start" entries logged in the middle of a drive by older versions, when a pause
+     * in the engine computer's answers looked like a restart. A real start comes before its trip begins.
+     */
+    fun removeFalseStarts(): Int = store.writableDatabase.delete(
+        "events",
+        "type = 'start' AND EXISTS (SELECT 1 FROM trips t WHERE events.time_ms > t.start_ms + 60000 AND events.time_ms < t.end_ms)",
+        null,
+    )
 }
