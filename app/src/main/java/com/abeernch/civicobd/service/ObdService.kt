@@ -316,6 +316,8 @@ class ObdService : Service() {
                 continue
             }
             fails = 0
+            // The engine computer answered, so the ignition is on (engine running or not).
+            lastIgnitionMs = System.currentTimeMillis()
 
             if (slow) {
                 lastSlowMs = start
@@ -645,11 +647,14 @@ class ObdService : Service() {
         refreshWidget(force = false)
     }
 
+    // Last time the engine computer answered at all, engine running or not.
+    private var lastIgnitionMs = 0L
+
     // A summary has been shown for the current stop; cleared when the engine runs again.
     private var summaryShown = false
 
     /**
-     * After 60 s parked (engine not running and, by GPS, not moving) the drive is paused and its
+     * After 60 s parked (ignition off, or adapter unplugged, and by GPS not moving) the drive is paused and its
      * summary shown. It continues if the engine starts within 10 minutes; after that, or when the
      * user taps "End drive now", it is closed and the next start is a new drive.
      */
@@ -660,7 +665,11 @@ class ObdService : Service() {
             closeTrip(lastRunningMs.coerceAtLeast(trip.startMs))
             return
         }
-        val parkedFor = now - lastRunningMs
+        // A stop counts from the later of: the engine last running, or the ignition last on.
+        // With the ignition on and the engine off (waiting at a signal), the engine computer keeps
+        // answering, so the drive is neither paused nor ended. Only once it falls silent (ignition
+        // off or adapter unplugged) does the one-minute pause and ten-minute end apply.
+        val parkedFor = now - maxOf(lastRunningMs, lastIgnitionMs)
         when {
             parkedFor > CONTINUE_MS -> closeTrip(lastRunningMs)
             parkedFor > PAUSE_MS && !summaryShown -> pauseTrip()
