@@ -459,7 +459,7 @@ class ObdService : Service() {
         val speed = values[0x0D] ?: 0.0
         if (rpm > 0) {
             lastRunningMs = now
-            if (!trip.active) openTrip(now)
+            if (!trip.active) openTrip(now) else resumeIfPaused()
             // Never count time twice: after a gap filled from GPS, only the time since then is added.
             val dt = if (lastTickMs > 0) minOf(d.dtS, (now - lastTickMs) / 1000.0).coerceAtLeast(0.0) else d.dtS
             lastTickMs = now
@@ -477,14 +477,39 @@ class ObdService : Service() {
     }
 
     private fun openTrip(now: Long) {
-        val id = store.insert(TripRow(startMs = now, endMs = now))
-        trip = TripTotals(id = id, startMs = now)
-        recId = recordings.create(now, "Live", "Drive", id)
+        // A drive that stopped less than 10 minutes ago, and was not ended by hand, carries on:
+        // the same trip, recording and route. This also covers the app being stopped while parked.
+        val last = store.between(0, Long.MAX_VALUE).firstOrNull()
+        val lastRec = last?.let { recordings.forTrip(it.id) }
+        if (last != null && lastRec != null && lastRec.source == "Live" && last.id != settings.endedTripId &&
+            now >= last.endMs && now - last.endMs < CONTINUE_MS
+        ) {
+            trip = TripTotals(
+                id = last.id, startMs = last.startMs, distanceKm = last.distanceKm, fuelL = last.fuelL,
+                driveS = last.driveS, idleS = last.idleS, maxSpeed = last.maxSpeed,
+            )
+            recId = lastRec.id
+            LiveBus.log("Drive continues after %d s stopped".format((now - last.endMs) / 1000))
+            Alerts.cancelTrip(this)
+        } else {
+            val id = store.insert(TripRow(startMs = now, endMs = now))
+            trip = TripTotals(id = id, startMs = now)
+            recId = recordings.create(now, "Live", "Drive", id)
+            LiveBus.clearTrail()
+            LiveBus.log("Trip started")
+        }
         if (!settings.demo) route.start()
-        LiveBus.clearTrail()
         lastSavedMs = now
-        LiveBus.log("Trip started")
         LiveBus.tripsChanged()
+    }
+
+    /** The engine started again during a stop: same drive, summary withdrawn until the next stop. */
+    private fun resumeIfPaused() {
+        if (!summaryShown) return
+        summaryShown = false
+        LiveBus.update { it.copy(tripPaused = false) }
+        Alerts.cancelTrip(this)
+        LiveBus.log("Drive continues")
     }
 
     // ---- 1 Hz recording, with Car Scanner's parameter names so both apps chart alike ----
@@ -569,11 +594,16 @@ class ObdService : Service() {
         val kmh = fix.speedKmh ?: return
         val dt = if (lastTickMs > 0) ((now - lastTickMs) / 1000.0).coerceIn(0.0, 30.0) else 0.0
         lastTickMs = now
-        if (kmh > 5) lastRunningMs = now
+        // Standing still with the engine computer silent may mean the engine is off (a stop at a
+        // shop), so no time is counted then; only movement is filled in from GPS.
+        if (kmh < 3) return
+        if (kmh > 5) {
+            lastRunningMs = now
+            resumeIfPaused()
+        }
         trip = trip.copy(
             distanceKm = trip.distanceKm + kmh * dt / 3600.0,
-            driveS = trip.driveS + if (kmh >= 1) dt else 0.0,
-            idleS = trip.idleS + if (kmh < 1) dt else 0.0,
+            driveS = trip.driveS + dt,
             maxSpeed = maxOf(trip.maxSpeed, kmh),
         )
         if (recId >= 0 && now - lastSampleMs >= 1_000) {
@@ -615,12 +645,44 @@ class ObdService : Service() {
         refreshWidget(force = false)
     }
 
+    // A summary has been shown for the current stop; cleared when the engine runs again.
+    private var summaryShown = false
+
     /**
-     * Ends the trip once the car has been parked for 60 s: engine not running and, by GPS, not
-     * moving. A stall that is restarted within the minute stays part of the same trip.
+     * After 60 s parked (engine not running and, by GPS, not moving) the drive is paused and its
+     * summary shown. It continues if the engine starts within 10 minutes; after that, or when the
+     * user taps "End drive now", it is closed and the next start is a new drive.
      */
     private fun checkTripEnd(now: Long) {
-        if (trip.active && now - lastRunningMs > 60_000) closeTrip(lastRunningMs)
+        if (!trip.active) return
+        if (LiveBus.takeEndRequest()) {
+            settings.endedTripId = trip.id
+            closeTrip(lastRunningMs.coerceAtLeast(trip.startMs))
+            return
+        }
+        val parkedFor = now - lastRunningMs
+        when {
+            parkedFor > CONTINUE_MS -> closeTrip(lastRunningMs)
+            parkedFor > PAUSE_MS && !summaryShown -> pauseTrip()
+        }
+    }
+
+    private fun pauseTrip() {
+        summaryShown = true
+        saveTrip(lastRunningMs)
+        flushSamples(lastRunningMs)
+        LiveBus.update { it.copy(tripPaused = true) }
+        LiveBus.log("Parked. The drive continues if the engine starts within 10 minutes")
+        if (trip.distanceKm >= 0.1) showSummary(paused = true)
+    }
+
+    private fun showSummary(paused: Boolean) {
+        try {
+            store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store), paused) }
+            Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
+        } catch (e: Exception) {
+            LiveBus.log("Summary failed: ${e.message}")
+        }
     }
 
     private var lastWidgetMs = 0L
@@ -642,15 +704,12 @@ class ObdService : Service() {
             // Engine started but the car did not move: keep nothing.
             if (recId >= 0) recordings.delete(recId, withTrip = false)
             store.delete(trip.id)
-        } else {
-            // The summary as soon as the car is parked, then any service job the drive made due.
-            try {
-                store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store)) }
-                Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
-            } catch (e: Exception) {
-                LiveBus.log("Summary failed: ${e.message}")
-            }
+        } else if (!summaryShown) {
+            // Ended before the one-minute pause (for example by hand): the summary now.
+            showSummary(paused = false)
         }
+        summaryShown = false
+        LiveBus.update { it.copy(tripPaused = false) }
         recId = -1
         lastTickMs = 0L
         route.stop()
@@ -705,6 +764,11 @@ class ObdService : Service() {
     }
 
     companion object {
+        /** Parked this long, the drive pauses and its summary is shown. */
+        private const val PAUSE_MS = 60_000L
+        /** Parked longer than this, the drive ends; a start after it begins a new drive. */
+        private const val CONTINUE_MS = 10 * 60_000L
+
         /** The one extra reading taken in each polling cycle, in turn. */
         private val EXTRA_ROTATION = listOf(0x11, 0x0F, 0x11, 0x05, 0x11, 0x04, 0x11, 0x0E)
 

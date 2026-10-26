@@ -150,6 +150,11 @@ class AppSettings(context: Context) {
         get() = prefs.getString("route_names", "{}") ?: "{}"
         set(value) = prefs.edit().putString("route_names", value).apply()
 
+    /** The drive the user ended by hand, so it is not picked up again as a continuing drive. */
+    var endedTripId: Long
+        get() = prefs.getLong("ended_trip_id", -1L)
+        set(value) = prefs.edit().putLong("ended_trip_id", value).apply()
+
     var askedBattery: Boolean
         get() = prefs.getBoolean("asked_battery", false)
         set(value) = prefs.edit().putBoolean("asked_battery", value).apply()

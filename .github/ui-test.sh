@@ -145,7 +145,7 @@ tap_text "Papaya night"; sleep 2
 
 # 5. Park the car: switching the demo off stops the engine; 60 s later the trip ends with a summary.
 tap_text "Settings"; sleep 2
-scroll_tap "Stop demo drive"; sleep 75
+scroll_tap "Stop demo drive"; sleep 95
 adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
 adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked

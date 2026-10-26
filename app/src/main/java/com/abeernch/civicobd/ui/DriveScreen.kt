@@ -170,8 +170,8 @@ private fun Gauges(
     lastTrip: com.abeernch.civicobd.core.TripSummary?,
 ) {
     // Parked: the last drive's summary instead of a screen of empty readings.
-    if (!live.trip.active && lastTrip != null) {
-        Parked(lastTrip, today, tank, settings)
+    if ((!live.trip.active || live.tripPaused) && lastTrip != null) {
+        Parked(lastTrip, today, tank, settings, paused = live.trip.active && live.tripPaused)
         return
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -244,7 +244,18 @@ private fun Parked(
     today: Summary,
     tank: com.abeernch.civicobd.core.Tank?,
     settings: AppSettings,
+    paused: Boolean,
 ) {
+    // Paused: a stop within a drive. The drive carries on if the engine starts within 10 minutes.
+    val title = if (paused) "Paused" else "Parked"
+    val hint = if (paused) "The drive continues if you set off within 10 minutes" else "Starts recording when the engine runs"
+    val cardTitle = if (paused) "This drive so far" else "Last drive"
+    val endButton: @Composable () -> Unit = {
+        if (paused) {
+            Spacer(Modifier.height(14.dp))
+            OutlineButton("End drive now", color = Palette.Accent) { LiveBus.requestEndDrive() }
+        }
+    }
     val todayBlock: @Composable () -> Unit = {
         Section("Today") {
             Row(Modifier.fillMaxWidth()) {
@@ -258,7 +269,11 @@ private fun Parked(
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
-                    TripSummaryCard(last, title = "Last drive")
+                    Text(title, style = Type.title)
+                    Text(hint, style = Type.label)
+                    Spacer(Modifier.height(10.dp))
+                    TripSummaryCard(last, title = cardTitle)
+                    endButton()
                 }
                 Spacer(Modifier.width(24.dp))
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -271,12 +286,13 @@ private fun Parked(
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Parked", style = Type.title)
-                        Text("Starts recording when the engine runs", style = Type.label)
+                        Text(title, style = Type.title)
+                        Text(hint, style = Type.label)
                     }
                     FuelIndicator(tank, settings)
                 }
-                TripSummaryCard(last, title = "Last drive")
+                TripSummaryCard(last, title = cardTitle)
+                endButton()
                 Spacer(Modifier.height(24.dp))
                 todayBlock()
                 Spacer(Modifier.height(24.dp))

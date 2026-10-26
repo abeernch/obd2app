@@ -45,6 +45,7 @@ data class LiveState(
     val fuelPrice: Double = 390.0,     // PKR per litre, mirrored from settings
     val log: List<String> = emptyList(),
     val position: LivePosition? = null, // latest GPS fix during a trip
+    val tripPaused: Boolean = false,     // engine off mid-drive: the drive continues if it restarts within 10 min
 )
 
 /** Where the car is now. Bearing is the direction of travel in degrees from north, null until it has moved. */
@@ -71,6 +72,11 @@ object LiveBus {
         val stamped = clock.format(Date()) + "  " + line
         _state.update { it.copy(log = (it.log + stamped).takeLast(300)) }
     }
+
+    // Set from the Drive screen's "End drive now"; the service picks it up on its next check.
+    @Volatile private var endRequested = false
+    fun requestEndDrive() { endRequested = true }
+    fun takeEndRequest(): Boolean = endRequested.also { endRequested = false }
 
     fun tripsChanged() = _state.update { it.copy(tripsVersion = it.tripsVersion + 1) }
 }

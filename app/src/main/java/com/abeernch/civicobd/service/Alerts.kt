@@ -53,18 +53,23 @@ object Alerts {
     }
 
     /** "11.0 km · 11.3 km/L · Rs 381 · 24 min", and how it compares with the recent average. */
-    fun tripEnded(context: Context, s: TripSummary) {
+    fun tripEnded(context: Context, s: TripSummary, paused: Boolean = false) {
         val t = s.trip
-        val (line, more) = s.notificationText()
+        val (line, text) = s.notificationText()
+        val more = if (paused) listOf(text, "The drive continues if you set off within 10 minutes.").filter { it.isNotBlank() }.joinToString(" ") else text
         val n = Notification.Builder(context, TRIPS)
             .setSmallIcon(R.drawable.ic_note)
-            .setContentTitle("Drive finished")
+            .setContentTitle(if (paused) "Parked" else "Drive finished")
             .setContentText(line)
             .setStyle(Notification.BigTextStyle().bigText(if (more.isEmpty()) line else "$line\n$more"))
             .setContentIntent(open(context, "Trips", t.id, 20))
             .setAutoCancel(true)
             .build()
         post(context, ID_TRIP, n)
+    }
+
+    fun cancelTrip(context: Context) {
+        context.getSystemService(NotificationManager::class.java)?.cancel(ID_TRIP)
     }
 
     /** Announces a newly lit check-engine light or codes not announced before. */
