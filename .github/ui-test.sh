@@ -113,7 +113,9 @@ adb pull /sdcard/tabs.mp4 "$OUT/tabs.mp4"
 # 4. Coasting with fuel cut, HUD, then each screen.
 sleep 18; shot 05_drive_fuel_cut
 tap_text "HUD"; sleep 3; shot 05b_hud
-adb shell input keyevent KEYCODE_BACK; sleep 1.5
+# Leaving the HUD must return to the same screen at once, with no splash.
+adb shell input keyevent KEYCODE_BACK; sleep 0.6; shot 05b2_after_hud
+sleep 1
 
 # 4b. Live map on Drive, both views in landscape, then the floating window over the home screen.
 tap_text "Map"; sleep 6; shot 05c_drive_map

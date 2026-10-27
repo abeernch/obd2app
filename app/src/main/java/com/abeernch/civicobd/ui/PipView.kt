@@ -53,7 +53,7 @@ fun PipView(live: LiveState) {
                 Column(Modifier.weight(1.3f)) {
                     Text(
                         if (hero.value == "--") "–" else hero.value,
-                        style = num(48f).copy(color = if (hero.fuelCut) Palette.Accent else Palette.Value),
+                        style = num(48f).copy(color = hero.color),
                         maxLines = 1,
                     )
                     Text(hero.unit, style = small, maxLines = 1)

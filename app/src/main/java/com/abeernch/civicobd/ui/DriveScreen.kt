@@ -56,7 +56,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** The main reading: km/L while moving, L/h while standing, "fuel cut" while coasting in gear. */
-data class HeroReading(val value: String, val unit: String, val fuelCut: Boolean)
+data class HeroReading(val value: String, val unit: String, val fuelCut: Boolean, val kmPerL: Double? = null) {
+    /** Red to green by economy; plain text colour when standing or with no reading. */
+    val color: androidx.compose.ui.graphics.Color get() = if (fuelCut || kmPerL != null) economyColor(kmPerL, fuelCut) else Palette.Value
+}
 
 fun heroReading(live: LiveState): HeroReading {
     val d = live.derived
@@ -64,7 +67,7 @@ fun heroReading(live: LiveState): HeroReading {
     return when {
         !running -> HeroReading("--", "km/L", false)
         d.fuelCut -> HeroReading("0.0", "L/h  fuel cut", true)
-        d.instantKmL != null -> HeroReading(fmt(d.instantKmL), "km/L  instant", false)
+        d.instantKmL != null -> HeroReading(fmt(d.instantKmL), "km/L  instant", false, d.instantKmL)
         else -> HeroReading(fmt(d.fuelLph), "L/h  standing", false)
     }
 }
@@ -211,7 +214,7 @@ private fun Hero(live: LiveState, tank: com.abeernch.civicobd.core.Tank?, settin
         ShiftCue(live.values[0x0C], d)
         Spacer(Modifier.height(10.dp))
         val heroTint by androidx.compose.animation.animateColorAsState(
-            if (hero.fuelCut) Palette.Accent else Palette.Value, Motion.fade(400), label = "hero",
+            hero.color, Motion.fade(400), label = "hero",
         )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -467,7 +470,7 @@ private fun MapReadout(live: LiveState, vertical: Boolean, modifier: Modifier) {
     val speed = live.values[0x0D]
     val running = live.link == Link.Live && (live.values[0x0C] ?: 0.0) > 0
     val heroColor by androidx.compose.animation.animateColorAsState(
-        if (hero.fuelCut) Palette.Accent else Palette.Value, Motion.fade(400), label = "mapHero",
+        hero.color, Motion.fade(400), label = "mapHero",
     )
     val big = Type.value.copy(fontSize = Type.sz(52f), lineHeight = Type.sz(54f))
     @Composable

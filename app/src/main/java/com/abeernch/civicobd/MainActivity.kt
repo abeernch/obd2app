@@ -21,6 +21,7 @@ import com.abeernch.civicobd.ui.TankCard
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import com.abeernch.civicobd.core.Backup
@@ -238,14 +239,6 @@ class MainActivity : ComponentActivity() {
             }
             // The floating window follows the trip: it may open only while one is running.
             LaunchedEffect(live.trip.active) { updatePip() }
-            if (inPip) {
-                com.abeernch.civicobd.ui.PipView(live)
-                return@setContent
-            }
-            if (hud) {
-                HudScreen(live) { hud = false }
-                return@setContent
-            }
 
             // The last finished drive, shown on Drive while parked.
             var lastTrip by remember { mutableStateOf<com.abeernch.civicobd.core.TripSummary?>(null) }
@@ -255,11 +248,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // The app stays composed underneath the head-up display and the floating window, so
+            // leaving either returns to the same tab, without the splash playing again.
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
             AppShell(live, driveJump, jump) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
-                        locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                        locationOk = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) ==
                             PackageManager.PERMISSION_GRANTED,
                         onHud = { hud = true },
                         lastTrip = lastTrip,
@@ -318,6 +314,9 @@ class MainActivity : ComponentActivity() {
                         onImport = { pickFiles.launch(arrayOf("text/*", "application/octet-stream", "*/*")) },
                     )
                 }
+            }
+            if (hud) HudScreen(live) { hud = false }
+            if (inPip) com.abeernch.civicobd.ui.PipView(live)
             }
         }
     }

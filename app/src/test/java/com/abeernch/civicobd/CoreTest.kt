@@ -191,6 +191,15 @@ class CoreTest {
     }
 
     @Test
+    fun economyColourRunsRedToGreen() {
+        val c = { k: Double -> com.abeernch.civicobd.ui.economyColor(k, dark = true) }
+        assertEquals(androidx.compose.ui.graphics.Color(0xFFFF5C5C), c(5.0))   // poor: red
+        assertEquals(androidx.compose.ui.graphics.Color(0xFFFFC24D), c(13.0))  // middle: amber
+        assertEquals(androidx.compose.ui.graphics.Color(0xFF4CD787), c(22.0))  // good: green
+        assertEquals(androidx.compose.ui.graphics.Color(0xFF4CD787), com.abeernch.civicobd.ui.economyColor(null, fuelCut = true, dark = true))
+    }
+
+    @Test
     fun serviceDueByDistanceOrTimeWhicheverFirst() {
         val day = 86_400_000L
         val now = 1_800_000_000_000L

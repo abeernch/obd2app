@@ -511,6 +511,7 @@ class ObdService : Service() {
         summaryShown = false
         LiveBus.update { it.copy(tripPaused = false) }
         Alerts.cancelTrip(this)
+        if (!settings.demo) route.start()
         LiveBus.log("Drive continues")
     }
 
@@ -590,19 +591,19 @@ class ObdService : Service() {
      * route going from GPS. A car still moving also keeps the trip open, so it is not ended early.
      */
     private fun fillFromGps(now: Long) {
-        if (!trip.active || settings.demo) return
+        // Paused (parked, ignition off): GPS is off and nothing is filled in, so walking away
+        // from the car is never recorded.
+        if (!trip.active || settings.demo || summaryShown) return
         val fix = route.latest ?: return
         if (now - fix.atMs > 5_000) return
         val kmh = fix.speedKmh ?: return
         val dt = if (lastTickMs > 0) ((now - lastTickMs) / 1000.0).coerceIn(0.0, 30.0) else 0.0
         lastTickMs = now
-        // Standing still with the engine computer silent may mean the engine is off (a stop at a
-        // shop), so no time is counted then; only movement is filled in from GPS.
-        if (kmh < 3) return
-        if (kmh > 5) {
-            lastRunningMs = now
-            resumeIfPaused()
-        }
+        // Only car speed counts. Below it the phone may be in a pocket walking away from the car
+        // (5 to 6 km/h was once taken for driving and kept a parked drive going), or the car is
+        // standing with the engine off; neither adds distance or keeps the drive open.
+        if (kmh < CAR_SPEED_KMH) return
+        lastRunningMs = now
         trip = trip.copy(
             distanceKm = trip.distanceKm + kmh * dt / 3600.0,
             driveS = trip.driveS + dt,
@@ -681,6 +682,7 @@ class ObdService : Service() {
         saveTrip(lastRunningMs)
         flushSamples(lastRunningMs)
         LiveBus.update { it.copy(tripPaused = true) }
+        route.stop() // no tracking while parked; it restarts with the engine
         LiveBus.log("Parked. The drive continues if the engine starts within 10 minutes")
         if (trip.distanceKm >= 0.1) showSummary(paused = true)
     }
@@ -773,6 +775,9 @@ class ObdService : Service() {
     }
 
     companion object {
+        /** GPS speed that can only be the car moving, never someone walking or jogging. */
+        private const val CAR_SPEED_KMH = 15.0
+
         /** Parked this long, the drive pauses and its summary is shown. */
         private const val PAUSE_MS = 60_000L
         /** Parked longer than this, the drive ends; a start after it begins a new drive. */

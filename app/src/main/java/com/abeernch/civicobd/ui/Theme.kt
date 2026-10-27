@@ -112,3 +112,19 @@ val Numeric: FontFamily get() = Fonts.numeric
 
 // System monospace, used only for the raw adapter log.
 val Mono = FontFamily.Monospace
+
+/**
+ * Colour for an instant economy reading: red when poor, amber in the middle, green when good,
+ * blended between. 8 km/L or less is red, about 13 amber, 18 or more green; fuel cut is full green.
+ * Brighter shades on the dark theme and deeper ones on the light theme, so both stay readable.
+ * Null (no reading, or standing still) gives the normal text colour.
+ */
+fun economyColor(kmPerL: Double?, fuelCut: Boolean = false, dark: Boolean = Palette.isDark): androidx.compose.ui.graphics.Color {
+    val red = if (dark) androidx.compose.ui.graphics.Color(0xFFFF5C5C) else androidx.compose.ui.graphics.Color(0xFFD12F2F)
+    val amber = if (dark) androidx.compose.ui.graphics.Color(0xFFFFC24D) else androidx.compose.ui.graphics.Color(0xFFC07E00)
+    val green = if (dark) androidx.compose.ui.graphics.Color(0xFF4CD787) else androidx.compose.ui.graphics.Color(0xFF1C9A4C)
+    if (fuelCut) return green
+    val k = kmPerL ?: return Palette.Value
+    val f = ((k - 8.0) / 10.0).coerceIn(0.0, 1.0).toFloat() // 8 -> 0, 13 -> 0.5, 18 -> 1
+    return if (f < 0.5f) androidx.compose.ui.graphics.lerp(red, amber, f * 2) else androidx.compose.ui.graphics.lerp(amber, green, (f - 0.5f) * 2)
+}

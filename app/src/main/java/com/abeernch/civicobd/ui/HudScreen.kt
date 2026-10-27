@@ -69,7 +69,8 @@ fun HudScreen(live: LiveState, onExit: () -> Unit) {
                         d.fuelCut -> "cut"
                         else -> fmt(d.instantKmL)
                     },
-                    "km/L", if (d.fuelCut) accent else bright,
+                    // The HUD is always black, so the dark-theme shades are used.
+                    "km/L", if (running && (d.fuelCut || d.instantKmL != null)) economyColor(d.instantKmL, d.fuelCut, dark = true) else bright,
                 )
                 HudFigure(fmt(live.trip.kmPerL), "trip", bright)
             }
