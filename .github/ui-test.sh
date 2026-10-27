@@ -58,9 +58,9 @@ adb push .github/sample_carscanner.csv /data/local/tmp/2026-10-22_09-00-39.csv
 adb shell "cat /data/local/tmp/2026-10-22_09-00-39.csv | run-as $PKG sh -c 'mkdir -p files && cat > files/2026-10-22_09-00-39.csv'"
 CSV_PATH=/data/data/$PKG/files/2026-10-22_09-00-39.csv
 
-# Scrolls down (up to 8 swipes) until the text is on screen, then taps it.
+# Scrolls down (up to 16 swipes) until the text is on screen, then taps it.
 scroll_tap() {
-  for n in 1 2 3 4 5 6 7 8; do
+  for n in $(seq 1 16); do
     xy=$(pos_text "$1")
     if [ -n "$xy" ]; then adb shell input tap $xy; echo "tap '$1' at $xy after $n looks"; return 0; fi
     adb shell input swipe 540 1600 540 900 300; sleep 0.8
