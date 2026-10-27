@@ -125,6 +125,52 @@ class Recordings(private val store: TripStore) {
 
     fun all(): List<RecordingRow> = list("", emptyArray())
 
+    /**
+     * Joins two drives into one: the earlier keeps its id and gets the later one's totals added,
+     * its time span stretched to cover both, and the later recording's readings moved into its own.
+     * The later drive and recording are then removed. All in one database transaction.
+     * Returns the merged drive.
+     */
+    fun mergeTrips(a: TripRow, b: TripRow): TripRow {
+        val (first, second) = if (a.startMs <= b.startMs) a to b else b to a
+        val merged = first.copy(
+            startMs = minOf(first.startMs, second.startMs),
+            endMs = maxOf(first.endMs, second.endMs),
+            distanceKm = first.distanceKm + second.distanceKm,
+            fuelL = first.fuelL + second.fuelL,
+            cost = first.cost + second.cost,
+            driveS = first.driveS + second.driveS,
+            idleS = first.idleS + second.idleS,
+            maxSpeed = maxOf(first.maxSpeed, second.maxSpeed),
+        )
+        val db = store.writableDatabase
+        db.beginTransaction()
+        try {
+            val keep = forTrip(first.id)
+            val drop = forTrip(second.id)
+            when {
+                keep != null && drop != null -> {
+                    db.execSQL("UPDATE samples SET rec_id = ? WHERE rec_id = ?", arrayOf<Any>(keep.id, drop.id))
+                    db.delete("recordings", "id = ?", arrayOf(drop.id.toString()))
+                    db.execSQL(
+                        "UPDATE recordings SET start_ms = ?, end_ms = ? WHERE id = ?",
+                        arrayOf<Any>(minOf(keep.startMs, drop.startMs), maxOf(keep.endMs, drop.endMs), keep.id),
+                    )
+                }
+                // Only the later drive has a recording: it now belongs to the merged drive.
+                keep == null && drop != null ->
+                    db.execSQL("UPDATE recordings SET trip_id = ? WHERE id = ?", arrayOf<Any>(first.id, drop.id))
+                else -> Unit
+            }
+            store.update(merged)
+            store.delete(second.id)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return merged
+    }
+
     /** The recording made with a trip, if any. */
     fun forTrip(tripId: Long): RecordingRow? = list("WHERE trip_id = ?", arrayOf(tripId.toString())).firstOrNull()
 

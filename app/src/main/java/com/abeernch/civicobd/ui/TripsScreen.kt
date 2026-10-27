@@ -69,6 +69,8 @@ fun TripsScreen(
     onExport: (RecordingRow, List<Series>, ExportKind) -> Unit,
     onExportRoute: (RecordingRow, List<RoutePoint>, Boolean, ColorScale, Pair<Double, Double>) -> Unit,
     onDelete: (TripRow, RecordingRow?) -> Unit,
+    onMerge: (TripRow, TripRow, (TripRow) -> Unit) -> Unit = { _, _, _ -> },
+    activeTripId: Long = -1,
 ) {
     var view by rememberSaveable { mutableStateOf(0) }
     var trips by remember { mutableStateOf(emptyList<TripRow>()) }
@@ -107,8 +109,28 @@ fun TripsScreen(
         val rec = recs[trip.id]
         var summary by remember(trip.id) { mutableStateOf<TripSummary?>(null) }
         LaunchedEffect(trip.id) { summary = withContext(Dispatchers.IO) { TripSummary.of(trip, store) } }
+        // The drive just before this one, for merging two drives that were really one.
+        val previous = trips.filter { it.startMs < trip.startMs }.maxByOrNull { it.startMs }
+        var confirmMerge by remember(trip.id) { mutableStateOf(false) }
         val header: @Composable () -> Unit = {
-            Box(Modifier.padding(horizontal = 20.dp)) { summary?.let { TripSummaryCard(it) } }
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                summary?.let { TripSummaryCard(it) }
+                if (previous != null && trip.id != activeTripId && previous.id != activeTripId) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlineButton(
+                        if (confirmMerge) "Tap again to merge into one drive"
+                        else "Merge with ${dayFmt.format(Date(previous.startMs))} ${clockFmt.format(Date(previous.startMs))} (${fmt(previous.distanceKm, 1)} km)",
+                        color = if (confirmMerge) Palette.Accent else Palette.Label,
+                    ) {
+                        if (confirmMerge) {
+                            confirmMerge = false
+                            onMerge(previous, trip) { merged -> open = merged }
+                        } else {
+                            confirmMerge = true
+                        }
+                    }
+                }
+            }
         }
         if (rec != null) {
             RecordingView(

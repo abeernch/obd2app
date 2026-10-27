@@ -311,11 +311,29 @@ fun RouteMapScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             selected?.let { PointReadout(points, it) }
-            Chips(RouteMetric.entries.toList(), metric, { it.label }) { metric = it }
-            Chips(ColorScale.entries.toList(), scale, { it.label }) { scale = it; settings.routeScale = it.name }
-            Chips(ScaleMode.entries.toList(), mode, { it.label }) { mode = it }
+            // Four compact choices in two rows instead of four scrolling rows of chips.
+            val pick = Type.body.copy(color = Palette.Value, fontSize = Type.sz(16f))
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Colour by", style = Type.label.copy(fontSize = Type.sz(12f)))
+                    Dropdown(RouteMetric.entries.toList(), metric, { it.label }, pick) { metric = it }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Colours", style = Type.label.copy(fontSize = Type.sz(12f)))
+                    Dropdown(ColorScale.entries.toList(), scale, { it.label }, pick) { scale = it; settings.routeScale = it.name }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Range", style = Type.label.copy(fontSize = Type.sz(12f)))
+                    Dropdown(ScaleMode.entries.toList(), mode, { if (it == ScaleMode.Relative) "This drive" else "Fixed" }, pick) { mode = it }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Map", style = Type.label.copy(fontSize = Type.sz(12f)))
+                    Dropdown(MapTiles.entries.toList(), tileKind, { it.label }, pick) { tileKind = it; settings.mapTiles = it.name }
+                }
+            }
             Legend(scale, range, metric)
-            Chips(MapTiles.entries.toList(), tileKind, { it.label }) { tileKind = it; settings.mapTiles = it.name }
             if (points.any { it.altitude != null }) {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     Text("Elevation", style = Type.section)

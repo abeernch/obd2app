@@ -60,6 +60,13 @@ fun HudScreen(live: LiveState, onExit: () -> Unit) {
                     ),
                 )
                 Text("km/h", style = Type.label.copy(color = Color(0xFFBDBDBD), fontSize = Type.sz(22f)))
+                // Trip distance, just under the speed and smaller, so the speed still leads.
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    fmt(live.trip.distanceKm, 1),
+                    style = Type.hero.copy(color = Color(0xFFE6E6E6), fontSize = Type.sz(96f), lineHeight = Type.sz(96f)),
+                )
+                Text("km this trip", style = Type.label.copy(color = Color(0xFFBDBDBD), fontSize = Type.sz(20f)))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 HudFigure(if (!running) "–" else if (d.gear == 0) "N" else d.gear.toString(), "gear", bright)

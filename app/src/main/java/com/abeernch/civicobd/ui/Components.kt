@@ -223,3 +223,9 @@ fun IconCar(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u 
     drawCircle(color, 2.2f * u, Offset(7.2f * u, 16.5f * u), style = stroke)
     drawCircle(color, 2.2f * u, Offset(16.8f * u, 16.5f * u), style = stroke)
 }
+
+/** A small down arrow, for menus. */
+@Composable
+fun IconChevronDown(color: Color, size: Dp = 16.dp) = LineIcon(color, size) { stroke, u ->
+    drawPath(path(u, 6f to 9f, 12f to 15f, 18f to 9f), color, style = stroke)
+}

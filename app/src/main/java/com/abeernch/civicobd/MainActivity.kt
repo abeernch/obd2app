@@ -269,6 +269,14 @@ class MainActivity : ComponentActivity() {
                         onOpened = { openTripId = null },
                         onExport = { rec, _, kind -> exportRecording(rec, kind) },
                         onExportRoute = { rec, pts, gpx, scale, range -> exportRoute(rec, pts, gpx, scale, range) },
+                        activeTripId = live.trip.id,
+                        onMerge = { a, b, done ->
+                            lifecycleScope.launch {
+                                val merged = withContext(Dispatchers.IO) { recordings.mergeTrips(a, b) }
+                                LiveBus.tripsChanged()
+                                done(merged)
+                            }
+                        },
                         onDelete = { trip, rec ->
                             lifecycleScope.launch(Dispatchers.IO) {
                                 // Deleting a drive removes both its totals and its recording.

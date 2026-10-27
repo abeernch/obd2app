@@ -152,6 +152,8 @@ adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notificatio
 adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked
 tap_text "Stats"; sleep 2; shot 10_stats_week
+# The period is a menu now: open it, then pick Today.
+tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu
 tap_text "Today"; sleep 2; shot 11_stats_today
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
@@ -173,11 +175,15 @@ tap_text "Route map"; sleep 8; shot 20_route_map
 # Press and hold on the map, then slide: the marker should snap to the route and follow it.
 adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
 adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
-tap_text "Speed"; sleep 2; shot 24_route_speed
-scroll_tap "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
-scroll_tap "OpenStreetMap"; sleep 6; shot 22b_route_osm
+# Route options are menus: open each by its current value, then pick.
+tap_text "Economy"; sleep 1; tap_text "Speed"; sleep 2; shot 24_route_speed
+tap_text "Parula"; sleep 1; tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
+tap_text "Esri gray"; sleep 1; tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
-adb shell input keyevent KEYCODE_BACK; sleep 1.5
+# Merge the demo drive into the drive before it (tap twice to confirm).
+tap_text "Merge with"; sleep 1; shot 18b_merge_confirm
+tap_text "Tap again to merge"; sleep 3; shot 18c_merged
+adb shell input keyevent KEYCODE_BACK; sleep 1.5; shot 13c_trips_after_merge
 tap_text "Routes"; sleep 4; shot 13b_trips_routes
 
 # 7. Connection log, now in Settings.

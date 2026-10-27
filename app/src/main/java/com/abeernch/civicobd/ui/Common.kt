@@ -32,9 +32,9 @@ object Type {
     fun sz(n: Float) = (n * scale).sp
 
     val label: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(15f), color = Palette.Label, letterSpacing = 0.1.sp)
-    val section: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(15f), fontWeight = FontWeight.Medium, color = Palette.Label, letterSpacing = 0.3.sp)
+    val section: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(17.5f), fontWeight = FontWeight.Medium, color = Palette.Label, letterSpacing = 0.3.sp)
     val body: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(17f), color = Palette.Value, fontFeatureSettings = "tnum")
-    val title: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(24f), fontWeight = FontWeight.SemiBold, color = Palette.Value)
+    val title: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(27f), fontWeight = FontWeight.SemiBold, color = Palette.Value)
     val value: TextStyle get() = TextStyle(
         fontFamily = Numeric, fontSize = sz(38f), fontWeight = FontWeight.Bold,
         color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(42f),

@@ -80,48 +80,83 @@ fun StatsScreen(
     ) {
         item { header() }
         item {
-            Chips(Period.entries.toList(), period, { it.label }) { period = it }
-        }
-        item {
             Column(Modifier.padding(horizontal = 20.dp)) {
-                Section(period.label) {
-                    Row(Modifier.fillMaxWidth()) {
-                        Tile("Distance", fmt(total.distanceKm, 1), "km", Modifier.weight(1f))
-                        Tile("Fuel", fmt(total.fuelL, 2), "L", Modifier.weight(1f))
-                        Tile("Economy", fmt(total.kmPerL), "km/L", Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        Tile("Cost", fmt(total.cost, 0), "PKR", Modifier.weight(1f))
-                        Tile("Avg speed", fmt(total.avgSpeed), "km/h", Modifier.weight(1f))
-                        Tile("Trips", total.trips.toString(), "", Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        Tile("Total time", if (total.totalS > 0) duration(total.totalS) else "--", "", Modifier.weight(1f))
-                        Tile("Driving", if (total.totalS > 0) duration(total.driveS) else "--", "", Modifier.weight(1f))
-                        Tile("Standing", if (total.totalS > 0) duration(total.idleS) else "--", "", Modifier.weight(1f))
-                    }
+                // The period picker is the section's title: "This week" with a menu of the others.
+                Dropdown(Period.entries.toList(), period, { it.label }, Type.title.copy(fontSize = Type.sz(24f))) { period = it }
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Tile("Distance", fmt(total.distanceKm, 1), "km", Modifier.weight(1f))
+                    Tile("Fuel", fmt(total.fuelL, 2), "L", Modifier.weight(1f))
+                    Tile("Economy", fmt(total.kmPerL), "km/L", Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    Tile("Cost", fmt(total.cost, 0), "PKR", Modifier.weight(1f))
+                    Tile("Avg speed", fmt(total.avgSpeed), "km/h", Modifier.weight(1f))
+                    Tile("Drives", total.trips.toString(), "", Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    Tile("Total time", if (total.totalS > 0) duration(total.totalS) else "--", "", Modifier.weight(1f))
+                    Tile("Driving", if (total.totalS > 0) duration(total.driveS) else "--", "", Modifier.weight(1f))
+                    Tile("Standing", if (total.totalS > 0) duration(total.idleS) else "--", "", Modifier.weight(1f))
                 }
             }
         }
         item {
             Column {
-                Chips(Metric.entries.toList(), metric, { it.label }) { metric = it }
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Dropdown(Metric.entries.toList(), metric, { it.label }, Type.section.copy(color = Palette.Value)) { metric = it }
+                    Text("  per ${if (period.byMonth) "month" else "day"}, ${metric.unit}", style = Type.label)
+                }
                 Spacer(Modifier.height(16.dp))
                 BarChart(buckets, metric)
             }
         }
-        item {
-            Text(
-                if (trips.isEmpty()) "No trips in this period yet" else "Trips",
-                style = Type.label, modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        items(trips, key = { it.id }) { t -> TripCard(t) }
+        // Each drive is listed in the Trips tab; here only the totals, chart and export.
         if (trips.isNotEmpty()) {
             item {
                 Column(Modifier.padding(horizontal = 20.dp)) {
-                    OutlineButton("Export these trips as CSV") { onExportTrips(trips) }
+                    OutlineButton("Export these ${trips.size} drives as CSV") { onExportTrips(trips) }
                 }
+            }
+        } else {
+            item { Text("No drives in this period yet", style = Type.label, modifier = Modifier.padding(horizontal = 20.dp)) }
+        }
+    }
+}
+
+/**
+ * A choice shown as its current value with a small down arrow; tapping opens a menu of the others.
+ * Takes the place of a scrolling row of chips, so the choices do not crowd the screen.
+ */
+@Composable
+fun <T> Dropdown(options: List<T>, selected: T, label: (T) -> String, style: androidx.compose.ui.text.TextStyle, onPick: (T) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.clip(RoundedCornerShape(8.dp)).pressable { open = true }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label(selected), style = style)
+            Spacer(Modifier.width(8.dp))
+            IconChevronDown(Palette.Accent, (style.fontSize.value * 0.75f).dp)
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(Palette.Surface),
+        ) {
+            options.forEach { o ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Text(
+                            label(o),
+                            style = Type.body.copy(color = if (o == selected) Palette.Accent else Palette.Value),
+                        )
+                    },
+                    onClick = { open = false; onPick(o) },
+                )
             }
         }
     }
@@ -198,37 +233,6 @@ private fun BarChart(buckets: List<Bucket>, metric: Metric) {
                     maxLines = 1,
                 )
             }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text("${metric.label}  ${metric.unit}", style = Type.label)
-    }
-}
-
-@Composable
-private fun TripCard(t: TripRow) {
-    val day = SimpleDateFormat("d MMM yyyy", Locale.US).format(Date(t.startMs))
-    val clock = SimpleDateFormat("HH:mm", Locale.US)
-    val s = Summary.of(listOf(t))
-    Column(
-        Modifier
-            .padding(horizontal = 20.dp)
-            .fillMaxWidth()
-            .border(1.dp, Palette.Hairline, RoundedCornerShape(12.dp))
-            .padding(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(day, style = Type.body, modifier = Modifier.weight(1f))
-            Text("${clock.format(Date(t.startMs))}  to  ${clock.format(Date(t.endMs))}", style = Type.label)
-        }
-        Row(Modifier.fillMaxWidth()) {
-            Tile("Distance", fmt(t.distanceKm, 2), "km", Modifier.weight(1f))
-            Tile("Economy", fmt(s.kmPerL), "km/L", Modifier.weight(1f))
-            Tile("Cost", fmt(t.cost, 0), "PKR", Modifier.weight(1f))
-        }
-        Row(Modifier.fillMaxWidth()) {
-            Tile("Fuel", fmt(t.fuelL, 2), "L", Modifier.weight(1f))
-            Tile("Avg speed", fmt(s.avgSpeed), "km/h", Modifier.weight(1f))
-            Tile("Standing", duration(t.idleS), "", Modifier.weight(1f))
         }
     }
 }
