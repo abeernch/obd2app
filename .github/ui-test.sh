@@ -151,6 +151,8 @@ scroll_tap "Stop demo drive"; sleep 95
 adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
 adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked
+# End the paused drive, so it can be merged later on.
+tap_text "End drive now"; sleep 25; shot 10f_drive_ended
 tap_text "Stats"; sleep 2; shot 10_stats_week
 # The period is a menu now: open it, then pick Today.
 tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu
@@ -178,7 +180,7 @@ adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
 # Route options are menus: open each by its current value, then pick.
 tap_text "Economy"; sleep 1; tap_text "Speed"; sleep 2; shot 24_route_speed
 tap_text "Parula"; sleep 1; tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
-tap_text "Esri gray"; sleep 1; tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
+scroll_tap "Esri gray"; sleep 1; tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 # Merge the demo drive into the drive before it (tap twice to confirm).
 tap_text "Merge with"; sleep 1; shot 18b_merge_confirm

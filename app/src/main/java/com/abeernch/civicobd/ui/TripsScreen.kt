@@ -115,7 +115,11 @@ fun TripsScreen(
         val header: @Composable () -> Unit = {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 summary?.let { TripSummaryCard(it) }
-                if (previous != null && trip.id != activeTripId && previous.id != activeTripId) {
+                if (previous != null && trip.id == activeTripId) {
+                    // The app is still writing this drive (driving, or paused at a stop).
+                    Spacer(Modifier.height(10.dp))
+                    Text("Merging is available once this drive has ended.", style = Type.label)
+                } else if (previous != null && previous.id != activeTripId) {
                     Spacer(Modifier.height(10.dp))
                     OutlineButton(
                         if (confirmMerge) "Tap again to merge into one drive"
