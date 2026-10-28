@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -260,7 +261,8 @@ private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<
                         fontSize = Type.sz(12f),
                         color = if (index == selected) Palette.Accent else Palette.Label,
                     ),
-                    modifier = Modifier.weight(1f),
+                    // Narrow day columns (a month has 31): the label may spill into the empty columns beside it.
+                    modifier = Modifier.weight(1f).wrapContentWidth(unbounded = true),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     softWrap = false,
