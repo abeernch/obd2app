@@ -157,6 +157,14 @@ tap_text "Stats"; sleep 2; shot 10_stats_week
 # The period is a menu now: open it, then pick Today.
 tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu
 tap_text "Today"; sleep 2; shot 11_stats_today
+# Month view: October by name, step back to September and forward again, then select a bar.
+tap_text "Today"; sleep 1; tap_text "This month"; sleep 2; shot 11b_stats_month
+tap_text "Previous"; sleep 2; shot 11c_stats_prev_month
+tap_text "Next"; sleep 2
+xy=$(pos_text "26"); if [ -n "$xy" ]; then set -- $xy; adb shell input tap $1 $(( $2 - 160 )); fi; sleep 1.5; shot 11d_stats_bar_selected
+# Year view: twelve months, a step back to last year.
+tap_text "This month"; sleep 1; tap_text "This year"; sleep 2; shot 11e_stats_year
+tap_text "Previous"; sleep 2; shot 11f_stats_prev_year
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
 scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel

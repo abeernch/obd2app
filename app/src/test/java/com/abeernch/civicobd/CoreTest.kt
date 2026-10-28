@@ -191,6 +191,34 @@ class CoreTest {
     }
 
     @Test
+    fun periodsShowTheirDatesAndStep() {
+        val now = Calendar.getInstance().apply { set(2026, Calendar.OCTOBER, 28, 14, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+        val W = com.abeernch.civicobd.core.Windows
+        // This week runs Monday to Sunday, every day a bar.
+        val week = W.of(com.abeernch.civicobd.core.Period.Week, 0, now)
+        assertEquals("26 Oct – 1 Nov 2026", week.title)
+        assertEquals(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), week.slots.map { it.label })
+        assertEquals("19 Oct – 25 Oct 2026", W.of(com.abeernch.civicobd.core.Period.Week, -1, now).title)
+        // Months by name, stepping back across a year end.
+        assertEquals("October 2026", W.of(com.abeernch.civicobd.core.Period.Month, 0, now).title)
+        assertEquals(31, W.of(com.abeernch.civicobd.core.Period.Month, 0, now).slots.size)
+        assertEquals("September 2026", W.of(com.abeernch.civicobd.core.Period.Month, -1, now).title)
+        assertEquals(30, W.of(com.abeernch.civicobd.core.Period.Month, -1, now).slots.size)
+        assertEquals("December 2025", W.of(com.abeernch.civicobd.core.Period.Month, -10, now).title)
+        // A year: twelve months, and the year before.
+        val year = W.of(com.abeernch.civicobd.core.Period.Year, 0, now)
+        assertEquals("2026", year.title)
+        assertEquals(12, year.slots.size)
+        assertEquals("Jan", year.slots.first().label)
+        assertEquals("2025", W.of(com.abeernch.civicobd.core.Period.Year, -1, now).title)
+        // Rolling windows step by their own length.
+        assertEquals("22 Oct – 28 Oct 2026", W.of(com.abeernch.civicobd.core.Period.Days7, 0, now).title)
+        assertEquals("15 Oct – 21 Oct 2026", W.of(com.abeernch.civicobd.core.Period.Days7, -1, now).title)
+        assertEquals("Wednesday, 28 Oct 2026", W.of(com.abeernch.civicobd.core.Period.Today, 0, now).title)
+        assertEquals("Tuesday, 27 Oct 2026", W.of(com.abeernch.civicobd.core.Period.Yesterday, 0, now).title)
+    }
+
+    @Test
     fun economyColourRunsRedToGreen() {
         val c = { k: Double -> com.abeernch.civicobd.ui.economyColor(k, dark = true) }
         assertEquals(androidx.compose.ui.graphics.Color(0xFFFF5C5C), c(5.0))   // poor: red

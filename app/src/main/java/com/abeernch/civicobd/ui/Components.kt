@@ -229,3 +229,10 @@ fun IconCar(color: Color, size: Dp = 20.dp) = LineIcon(color, size) { stroke, u 
 fun IconChevronDown(color: Color, size: Dp = 16.dp) = LineIcon(color, size) { stroke, u ->
     drawPath(path(u, 6f to 9f, 12f to 15f, 18f to 9f), color, style = stroke)
 }
+
+/** A small arrow pointing left or right, for stepping back and forward. */
+@Composable
+fun IconChevron(color: Color, left: Boolean, size: Dp = 16.dp) = LineIcon(color, size) { stroke, u ->
+    if (left) drawPath(path(u, 15f to 5f, 8f to 12f, 15f to 19f), color, style = stroke)
+    else drawPath(path(u, 9f to 5f, 16f to 12f, 9f to 19f), color, style = stroke)
+}
