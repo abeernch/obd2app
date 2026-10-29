@@ -3,6 +3,8 @@ package com.abeernch.civicobd.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,7 +71,7 @@ fun TripsScreen(
     onExport: (RecordingRow, List<Series>, ExportKind) -> Unit,
     onExportRoute: (RecordingRow, List<RoutePoint>, Boolean, ColorScale, Pair<Double, Double>) -> Unit,
     onDelete: (TripRow, RecordingRow?) -> Unit,
-    onMerge: (TripRow, TripRow, (TripRow) -> Unit) -> Unit = { _, _, _ -> },
+    onMerge: (List<TripRow>, (TripRow) -> Unit) -> Unit = { _, _ -> },
     activeTripId: Long = -1,
 ) {
     var view by rememberSaveable { mutableStateOf(0) }
@@ -109,32 +111,8 @@ fun TripsScreen(
         val rec = recs[trip.id]
         var summary by remember(trip.id) { mutableStateOf<TripSummary?>(null) }
         LaunchedEffect(trip.id) { summary = withContext(Dispatchers.IO) { TripSummary.of(trip, store) } }
-        // The drive just before this one, for merging two drives that were really one.
-        val previous = trips.filter { it.startMs < trip.startMs }.maxByOrNull { it.startMs }
-        var confirmMerge by remember(trip.id) { mutableStateOf(false) }
         val header: @Composable () -> Unit = {
-            Column(Modifier.padding(horizontal = 20.dp)) {
-                summary?.let { TripSummaryCard(it) }
-                if (previous != null && trip.id == activeTripId) {
-                    // The app is still writing this drive (driving, or paused at a stop).
-                    Spacer(Modifier.height(10.dp))
-                    Text("Merging is available once this drive has ended.", style = Type.label)
-                } else if (previous != null && previous.id != activeTripId) {
-                    Spacer(Modifier.height(10.dp))
-                    OutlineButton(
-                        if (confirmMerge) "Tap again to merge into one drive"
-                        else "Merge with ${dayFmt.format(Date(previous.startMs))} ${clockFmt.format(Date(previous.startMs))} (${fmt(previous.distanceKm, 1)} km)",
-                        color = if (confirmMerge) Palette.Accent else Palette.Label,
-                    ) {
-                        if (confirmMerge) {
-                            confirmMerge = false
-                            onMerge(previous, trip) { merged -> open = merged }
-                        } else {
-                            confirmMerge = true
-                        }
-                    }
-                }
-            }
+            Box(Modifier.padding(horizontal = 20.dp)) { summary?.let { TripSummaryCard(it) } }
         }
         if (rec != null) {
             RecordingView(
@@ -152,11 +130,51 @@ fun TripsScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-            SegmentSwitch(listOf("Drives", "Routes"), view.toFloat()) { view = it }
+        // Drives picked for merging; empty when not selecting.
+        var picking by remember { mutableStateOf(false) }
+        var picked by remember { mutableStateOf(setOf<Long>()) }
+        fun stopPicking() { picking = false; picked = emptySet() }
+        if (picking) BackHandler { stopPicking() }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            SegmentSwitch(listOf("Drives", "Routes"), view.toFloat()) { view = it; stopPicking() }
+            Spacer(Modifier.weight(1f))
+            if (view == 0 && trips.size >= 2) {
+                Text(
+                    if (picking) "Cancel" else "Select",
+                    style = Type.body.copy(color = Palette.Accent),
+                    modifier = Modifier.pressable { if (picking) stopPicking() else picking = true }.padding(8.dp),
+                )
+            }
         }
         if (view == 0) {
-            DriveList(trips, recs) { open = it }
+            Box(Modifier.weight(1f)) {
+                DriveList(
+                    trips, recs, picking, picked, activeTripId,
+                    onOpen = { t ->
+                        if (picking) {
+                            if (t.id != activeTripId) picked = if (t.id in picked) picked - t.id else picked + t.id
+                        } else open = t
+                    },
+                    onLongPress = { t -> if (t.id != activeTripId) { picking = true; picked = picked + t.id } },
+                )
+            }
+            if (picking) {
+                Column(Modifier.fillMaxWidth().background(Palette.Surface).padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    val chosen = trips.filter { it.id in picked }
+                    Text(
+                        if (chosen.size < 2) "Pick two or more drives to join into one."
+                        else "${chosen.size} drives, ${fmt(chosen.sumOf { it.distanceKm }, 1)} km in all. Drives in between that are not picked stay separate.",
+                        style = Type.label,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlineButton(
+                        if (chosen.size < 2) "Merge" else "Merge ${chosen.size} drives",
+                        color = if (chosen.size >= 2) Palette.Accent else Palette.Label,
+                    ) {
+                        if (chosen.size >= 2) onMerge(chosen.sortedBy { it.startMs }) { merged -> stopPicking(); open = merged }
+                    }
+                }
+            }
         } else {
             RoutesView(trips, recs, recordings, settings, onOpen = { open = it }, onAllDrivesMap = { heatOpen = true })
         }
@@ -177,7 +195,15 @@ private fun BackRow(title: String, onBack: () -> Unit) {
 // ---- Drives ----
 
 @Composable
-private fun DriveList(trips: List<TripRow>, recs: Map<Long, RecordingRow>, onOpen: (TripRow) -> Unit) {
+private fun DriveList(
+    trips: List<TripRow>,
+    recs: Map<Long, RecordingRow>,
+    picking: Boolean,
+    picked: Set<Long>,
+    activeTripId: Long,
+    onOpen: (TripRow) -> Unit,
+    onLongPress: (TripRow) -> Unit,
+) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
@@ -185,24 +211,53 @@ private fun DriveList(trips: List<TripRow>, recs: Map<Long, RecordingRow>, onOpe
     ) {
         if (trips.isEmpty()) {
             item { Text("No drives yet. They are recorded automatically once the car connects.", style = Type.label) }
+        } else if (!picking && trips.size >= 2) {
+            item { Text("Hold a drive to select drives to merge.", style = Type.label.copy(fontSize = Type.sz(13f))) }
         }
-        items(trips, key = { it.id }) { t -> DriveCard(t, recs[t.id]?.source) { onOpen(t) } }
+        items(trips, key = { it.id }) { t ->
+            DriveCard(
+                t, recs[t.id]?.source,
+                pick = if (!picking) null else if (t.id == activeTripId) false to true else (t.id in picked) to false,
+                onClick = { onOpen(t) },
+                onLongClick = { onLongPress(t) },
+            )
+        }
     }
 }
 
+/**
+ * One drive in the list. [pick] is null when not selecting, otherwise (picked, locked):
+ * a locked drive is the one still being recorded, which cannot be merged.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun DriveCard(t: TripRow, source: String?, onClick: () -> Unit) {
+private fun DriveCard(t: TripRow, source: String?, pick: Pair<Boolean, Boolean>?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val kml = if (t.fuelL > 0.01 && t.distanceKm > 0.05) t.distanceKm / t.fuelL else null
     val minutes = ((t.endMs - t.startMs) / 60_000).coerceAtLeast(0)
+    val on = pick?.first == true
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Palette.Hairline, RoundedCornerShape(12.dp))
-            .pressable(onClick = onClick)
+            .background(if (on) Palette.AccentSoft else androidx.compose.ui.graphics.Color.Transparent)
+            .border(1.dp, if (on) Palette.Accent else Palette.Hairline, RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (pick != null) {
+            // A round tick box; the drive still being recorded shows none.
+            if (!pick.second) {
+                Box(
+                    Modifier.size(22.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(if (on) Palette.Accent else androidx.compose.ui.graphics.Color.Transparent)
+                        .border(1.5.dp, if (on) Palette.Accent else Palette.Label, androidx.compose.foundation.shape.CircleShape)
+                )
+            } else {
+                Text("live", style = Type.label.copy(fontSize = Type.sz(12f)))
+            }
+            Spacer(Modifier.width(14.dp))
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(dayFmt.format(Date(t.startMs)), style = Type.body)

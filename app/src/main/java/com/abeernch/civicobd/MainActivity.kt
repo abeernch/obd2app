@@ -270,9 +270,12 @@ class MainActivity : ComponentActivity() {
                         onExport = { rec, _, kind -> exportRecording(rec, kind) },
                         onExportRoute = { rec, pts, gpx, scale, range -> exportRoute(rec, pts, gpx, scale, range) },
                         activeTripId = live.trip.id,
-                        onMerge = { a, b, done ->
+                        onMerge = { picked, done ->
                             lifecycleScope.launch {
-                                val merged = withContext(Dispatchers.IO) { recordings.mergeTrips(a, b) }
+                                // Oldest first: each later drive is folded into the first one.
+                                val merged = withContext(Dispatchers.IO) {
+                                    picked.sortedBy { it.startMs }.reduce { acc, next -> recordings.mergeTrips(acc, next) }
+                                }
                                 LiveBus.tripsChanged()
                                 done(merged)
                             }

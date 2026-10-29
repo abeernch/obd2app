@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -215,13 +216,16 @@ private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(6.dp))
-                        // The selection column: transparent at the top, deepening towards the base.
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                listOf(accent.copy(alpha = 0f), accent.copy(alpha = 0.10f * glow), accent.copy(alpha = 0.26f * glow))
+                        // The selection column, drawn behind without clipping, so the value above
+                        // the bar can be wider than the bar's own narrow column.
+                        .drawBehind {
+                            drawRoundRect(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    listOf(accent.copy(alpha = 0f), accent.copy(alpha = 0.10f * glow), accent.copy(alpha = 0.26f * glow))
+                                ),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
                             )
-                        )
+                        }
                         .pressable { onSelect(index) },
                     contentAlignment = Alignment.BottomCenter,
                 ) {
@@ -233,7 +237,13 @@ private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         if (on && value != null) {
-                            Text(fmt(value, decimals), style = Type.label.copy(fontSize = Type.sz(12f), color = Palette.Accent), maxLines = 1)
+                            Text(
+                                fmt(value, decimals),
+                                style = Type.label.copy(fontSize = Type.sz(12f), color = Palette.Accent),
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.wrapContentWidth(unbounded = true),
+                            )
                             Spacer(Modifier.height(3.dp))
                         }
                         // Slim bars, never wider than 26 dp; an empty day keeps a faint stub.

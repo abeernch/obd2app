@@ -190,9 +190,11 @@ tap_text "Economy"; sleep 1; tap_text "Speed"; sleep 2; shot 24_route_speed
 tap_text "Parula"; sleep 1; tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
 scroll_tap "Esri gray"; sleep 1; tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
-# Merge the demo drive into the drive before it (tap twice to confirm).
-tap_text "Merge with"; sleep 1; shot 18b_merge_confirm
-tap_text "Tap again to merge"; sleep 3; shot 18c_merged
+# Back to the list, pick the two newest drives and merge them.
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+tap_text "Select"; sleep 1
+tap_text "km/L" 0; sleep 0.5; tap_text "km/L" 1; sleep 1; shot 18b_merge_picked
+tap_text "Merge 2 drives"; sleep 3; shot 18c_merged
 adb shell input keyevent KEYCODE_BACK; sleep 1.5; shot 13c_trips_after_merge
 tap_text "Routes"; sleep 4; shot 13b_trips_routes
 
