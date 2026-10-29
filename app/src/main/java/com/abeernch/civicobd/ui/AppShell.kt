@@ -87,6 +87,7 @@ fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, 
                 val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
                     android.content.res.Configuration.ORIENTATION_LANDSCAPE
                 if (!(landscape && tab == Tab.Drive)) Header(live)
+                if (live.locationOff) LocationStrip()
                 Box(Modifier.weight(1f)) {
                     AnimatedContent(
                         targetState = tab,
@@ -106,6 +107,31 @@ fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, 
         if (!splashDone) {
             Splash(onReveal = { revealed = true }, onFinished = { splashDone = true })
         }
+    }
+}
+
+/**
+ * One line under the title while the phone's location switch is off. Apps can't switch location on
+ * themselves, so "Turn on" opens the switch in Settings, and the app offers to turn it off after the drive.
+ */
+@Composable
+private fun LocationStrip() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable {
+                com.abeernch.civicobd.core.AppSettings(context).locOnByApp = true
+                try {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                } catch (_: Exception) {
+                }
+            }
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Location is off. Routes won't be recorded.", style = Type.label.copy(color = Palette.Caution), modifier = Modifier.weight(1f))
+        Text("Turn on", style = Type.label.copy(color = Palette.Accent, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
     }
 }
 

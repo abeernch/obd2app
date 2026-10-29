@@ -119,6 +119,22 @@ class ObdService : Service() {
         true // unsure, so leave it on
     }
 
+    private fun locationOn(): Boolean = try {
+        getSystemService(android.location.LocationManager::class.java)
+            ?.let { androidx.core.location.LocationManagerCompat.isLocationEnabled(it) } ?: false
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Location was turned on from the app's prompt and is still on, so offer to turn it off. */
+    private fun offerLocationOff() = settings.locOnByApp && locationOn()
+
+    private fun takeLocationOffer(): Boolean {
+        val offer = offerLocationOff()
+        settings.locOnByApp = false
+        return offer
+    }
+
     /** Switches Bluetooth off when the app switched it on and nobody else needs it. */
     @SuppressLint("MissingPermission")
     private fun releaseBluetooth(bt: BluetoothAdapter) {
@@ -196,6 +212,8 @@ class ObdService : Service() {
                 if (LiveBus.state.value.link != Link.Idle) {
                     setLink(Link.Idle, "Not connected · tap to connect")
                     releaseBluetooth(bt)
+                    // No drive needed it (the adapter was never found): offer to turn location off on its own.
+                    if (takeLocationOffer()) Alerts.locationStillOn(this)
                 }
                 delay(3_000)
                 continue
@@ -766,9 +784,9 @@ class ObdService : Service() {
         if (trip.distanceKm >= 0.1) showSummary(paused = true)
     }
 
-    private fun showSummary(paused: Boolean) {
+    private fun showSummary(paused: Boolean, offerLocationOff: Boolean = false) {
         try {
-            store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store), paused) }
+            store.byId(trip.id)?.let { row -> Alerts.tripEnded(this, TripSummary.of(row, store), paused, offerLocationOff) }
             Alerts.service(this, settings, com.abeernch.civicobd.core.Car.status(settings, store, 0.0).odometerKm)
         } catch (e: Exception) {
             LiveBus.log("Summary failed: ${e.message}")
@@ -794,9 +812,11 @@ class ObdService : Service() {
             // Engine started but the car did not move: keep nothing.
             if (recId >= 0) recordings.delete(recId, withTrip = false)
             store.delete(trip.id)
-        } else if (!summaryShown) {
-            // Ended before the one-minute pause (for example by hand): the summary now.
-            showSummary(paused = false)
+        } else if (!summaryShown || offerLocationOff()) {
+            // Ended before the one-minute pause (for example by hand): the summary now. Or, if
+            // location was turned on for this drive, the "Parked" summary becomes "Drive finished"
+            // with a button to turn location off.
+            showSummary(paused = false, offerLocationOff = takeLocationOffer())
         }
         summaryShown = false
         LiveBus.update { it.copy(tripPaused = false) }

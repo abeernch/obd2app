@@ -156,6 +156,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("bt_on_by_app", false)
         set(value) = prefs.edit().putBoolean("bt_on_by_app", value).apply()
 
+    /** Set when the user turned location on from the app's prompt, so the app offers to turn it off after the drive. */
+    var locOnByApp: Boolean
+        get() = prefs.getBoolean("loc_on_by_app", false)
+        set(value) = prefs.edit().putBoolean("loc_on_by_app", value).apply()
+
     var endedTripId: Long
         get() = prefs.getLong("ended_trip_id", -1L)
         set(value) = prefs.edit().putLong("ended_trip_id", value).apply()

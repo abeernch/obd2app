@@ -351,6 +351,18 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         startServiceIfAllowed()
+        checkLocationSwitch()
+    }
+
+    /** Shows the "Location is off" strip while the phone's location switch is off. */
+    private fun checkLocationSwitch() {
+        val on = try {
+            getSystemService(android.location.LocationManager::class.java)
+                ?.let { androidx.core.location.LocationManagerCompat.isLocationEnabled(it) } ?: true
+        } catch (e: Exception) {
+            true
+        }
+        LiveBus.update { it.copy(locationOff = !on) }
     }
 
     override fun onNewIntent(intent: Intent) {

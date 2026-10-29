@@ -25,6 +25,7 @@ object Alerts {
     private const val ID_TRIP = 10
     private const val ID_CODES = 11
     private const val ID_SERVICE = 12
+    private const val ID_LOCATION = 13
 
     /** Extras read by MainActivity to open the right place. */
     const val EXTRA_TAB = "open_tab"
@@ -53,7 +54,7 @@ object Alerts {
     }
 
     /** "11.0 km · 11.3 km/L · Rs 381 · 24 min", and how it compares with the recent average. */
-    fun tripEnded(context: Context, s: TripSummary, paused: Boolean = false) {
+    fun tripEnded(context: Context, s: TripSummary, paused: Boolean = false, offerLocationOff: Boolean = false) {
         val t = s.trip
         val (line, text) = s.notificationText()
         val more = if (paused) listOf(text, "The drive continues if you set off within 10 minutes.").filter { it.isNotBlank() }.joinToString(" ") else text
@@ -64,8 +65,34 @@ object Alerts {
             .setStyle(Notification.BigTextStyle().bigText(if (more.isEmpty()) line else "$line\n$more"))
             .setContentIntent(open(context, "Trips", t.id, 20))
             .setAutoCancel(true)
+        if (offerLocationOff) n.addAction(locationAction(context))
+        post(context, ID_TRIP, n.build())
+    }
+
+    /**
+     * Apps can't switch location off themselves, so this opens the location switch in Settings.
+     * Offered only when location was turned on from the app's prompt.
+     */
+    private fun locationSettings(context: Context): PendingIntent = PendingIntent.getActivity(
+        context, 30,
+        Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    private fun locationAction(context: Context) = Notification.Action.Builder(
+        android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_note), "Turn off location", locationSettings(context),
+    ).build()
+
+    /** Used when there is no drive summary to attach the offer to. */
+    fun locationStillOn(context: Context) {
+        val n = Notification.Builder(context, TRIPS)
+            .setSmallIcon(R.drawable.ic_note)
+            .setContentTitle("Location is still on")
+            .setContentText("You turned it on for the drive. Tap to turn it off.")
+            .setContentIntent(locationSettings(context))
+            .setAutoCancel(true)
             .build()
-        post(context, ID_TRIP, n)
+        post(context, ID_LOCATION, n)
     }
 
     fun cancelTrip(context: Context) {
