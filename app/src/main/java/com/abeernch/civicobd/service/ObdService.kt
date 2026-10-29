@@ -9,6 +9,7 @@ import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
@@ -85,7 +86,56 @@ class ObdService : Service() {
         scope.launch { mainLoop() }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_WAKE) {
+            wakeRequested = true
+            searchUntilMs = System.currentTimeMillis() + SEARCH_MS
+        }
+        return START_STICKY
+    }
+
+    // ---- When to use Bluetooth ----
+    //
+    // Bluetooth is only switched on when the app is opened (or the status line is tapped), never
+    // from the background. The adapter is then looked for during a search window of a few minutes,
+    // and for as long as a drive is open. Once the drive ends and the window has passed, the app
+    // stops looking and, if it was the one that switched Bluetooth on and nothing else (earbuds,
+    // a watch, car audio) is connected, switches it off again.
+
+    @Volatile private var wakeRequested = false
+    @Volatile private var searchUntilMs = 0L
+    private var btWasOn: Boolean? = null
+
+    private fun searching(now: Long) = trip.active || now < searchUntilMs
+
+    /** True while some other device uses Bluetooth, so it must stay on. */
+    @SuppressLint("MissingPermission")
+    private fun othersConnected(bt: BluetoothAdapter): Boolean = try {
+        val profiles = mutableListOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
+        if (android.os.Build.VERSION.SDK_INT >= 29) profiles += BluetoothProfile.HEARING_AID
+        profiles.any { bt.getProfileConnectionState(it) == BluetoothProfile.STATE_CONNECTED } ||
+            (getSystemService(BluetoothManager::class.java)?.getConnectedDevices(BluetoothProfile.GATT)?.isNotEmpty() ?: false)
+    } catch (e: Exception) {
+        true // unsure, so leave it on
+    }
+
+    /** Switches Bluetooth off when the app switched it on and nobody else needs it. */
+    @SuppressLint("MissingPermission")
+    private fun releaseBluetooth(bt: BluetoothAdapter) {
+        if (!settings.btOnByApp) return
+        if (othersConnected(bt)) {
+            LiveBus.log("Leaving Bluetooth on: another device is connected")
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                bt.disable()
+                LiveBus.log("Bluetooth switched off (the app had switched it on)")
+            } catch (e: SecurityException) {
+                LiveBus.log("Bluetooth off refused: ${e.message}")
+            }
+        }
+        settings.btOnByApp = false
+    }
 
     override fun onDestroy() {
         closeTrip(System.currentTimeMillis())
@@ -119,15 +169,35 @@ class ObdService : Service() {
                 delay(60_000)
                 continue
             }
-            if (!bt.isEnabled) {
-                setLink(Link.BluetoothOff, "Turning Bluetooth on")
-                try {
-                    @Suppress("DEPRECATION")
-                    bt.enable()
-                } catch (e: SecurityException) {
-                    LiveBus.log("Bluetooth enable refused: ${e.message}")
+            val now = System.currentTimeMillis()
+            val on = bt.isEnabled
+            if (on && btWasOn == false) searchUntilMs = maxOf(searchUntilMs, now + SEARCH_MS) // switched on by hand
+            btWasOn = on
+            if (!on) {
+                if (wakeRequested) {
+                    wakeRequested = false
+                    setLink(Link.BluetoothOff, "Turning Bluetooth on")
+                    try {
+                        @Suppress("DEPRECATION")
+                        if (bt.enable()) settings.btOnByApp = true
+                    } catch (e: SecurityException) {
+                        LiveBus.log("Bluetooth enable refused: ${e.message}")
+                    }
+                } else {
+                    settings.btOnByApp = false // switched off by hand, or by us
+                    setLink(Link.BluetoothOff, "Bluetooth off · tap to connect")
                 }
-                delay(5_000)
+                delay(3_000)
+                continue
+            }
+            wakeRequested = false
+            if (!searching(now)) {
+                // Nothing to look for: no drive open and the search window has passed.
+                if (LiveBus.state.value.link != Link.Idle) {
+                    setLink(Link.Idle, "Not connected · tap to connect")
+                    releaseBluetooth(bt)
+                }
+                delay(3_000)
                 continue
             }
 
@@ -147,9 +217,13 @@ class ObdService : Service() {
                 LiveBus.log("Link: ${e.message}")
             }
 
+            if (!searching(System.currentTimeMillis())) continue
             setLink(Link.Searching, "Looking for the adapter")
-            // Retry fast after a drop while driving, slowly while parked.
-            delay(if (wasLive) 2_000 else 20_000)
+            // Retry fast after a drop while driving, slowly while parked. Checked each second so a
+            // tap on the status line, or the end of the search window, is acted on at once.
+            val wait = if (wasLive) 2_000 else 20_000
+            val from = System.currentTimeMillis()
+            while (System.currentTimeMillis() - from < wait && searching(System.currentTimeMillis()) && !wakeRequested) delay(1_000)
         }
     }
 
@@ -204,6 +278,11 @@ class ObdService : Service() {
                         LiveBus.log("Engine running (%.1f V) but no answer: resetting the adapter%s"
                             .format(volts, if (search) " and searching for the protocol" else ""))
                         initAdapter(elm, search)
+                    }
+                    if (!engineRunning && !searching(System.currentTimeMillis())) {
+                        // Adapter left plugged in with the car off and no drive open: let go of it.
+                        LiveBus.log("No drive and the car is off: disconnecting from the adapter")
+                        return
                     }
                     delay(if (engineRunning) 2_000 else 8_000)
                     continue
@@ -729,6 +808,7 @@ class ObdService : Service() {
         LiveBus.clearTrail()
         LiveBus.update { it.copy(position = null) }
         LiveBus.log("Trip ended: %.1f km".format(trip.distanceKm))
+        searchUntilMs = 0L // the drive is over: stop looking until the app is opened again
         trip = TripTotals()
         LiveBus.update { it.copy(trip = trip) }
         LiveBus.tripsChanged()
@@ -789,8 +869,17 @@ class ObdService : Service() {
         private const val CHANNEL = "car"
         private const val NOTE_ID = 1
 
+        /** Bluetooth is searched for this long after the app is opened. */
+        private const val SEARCH_MS = 5 * 60_000L
+        private const val ACTION_WAKE = "com.abeernch.civicobd.WAKE"
+
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, ObdService::class.java))
+        }
+
+        /** The app was opened, or the status line tapped: switch Bluetooth on and look for the adapter. */
+        fun wake(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, ObdService::class.java).setAction(ACTION_WAKE))
         }
     }
 }

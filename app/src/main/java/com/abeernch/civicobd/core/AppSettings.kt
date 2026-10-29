@@ -151,6 +151,11 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putString("route_names", value).apply()
 
     /** The drive the user ended by hand, so it is not picked up again as a continuing drive. */
+    /** Set when the app switched Bluetooth on, so it may switch it off again after the drive. */
+    var btOnByApp: Boolean
+        get() = prefs.getBoolean("bt_on_by_app", false)
+        set(value) = prefs.edit().putBoolean("bt_on_by_app", value).apply()
+
     var endedTripId: Long
         get() = prefs.getLong("ended_trip_id", -1L)
         set(value) = prefs.edit().putLong("ended_trip_id", value).apply()

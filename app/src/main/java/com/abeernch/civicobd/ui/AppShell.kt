@@ -135,7 +135,12 @@ private fun Header(live: LiveState) {
             },
             label = "status",
         ) { text ->
-            Text(text, style = Type.label.copy(color = color), maxLines = 1)
+            val context = androidx.compose.ui.platform.LocalContext.current
+            // Tapping the status switches Bluetooth on (if needed) and looks for the adapter again.
+            Text(
+                text, style = Type.label.copy(color = color), maxLines = 1,
+                modifier = Modifier.pressable { com.abeernch.civicobd.service.ObdService.wake(context) },
+            )
         }
         StatusDot(color, breathing = working, halo = live.link == Link.Live)
     }

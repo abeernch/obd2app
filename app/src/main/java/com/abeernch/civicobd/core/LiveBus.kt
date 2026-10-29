@@ -7,7 +7,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Link { BluetoothOff, NoAdapter, Searching, Connecting, EngineOff, Live }
+enum class Link { BluetoothOff, NoAdapter, Searching, Connecting, EngineOff, Live, Idle }
 
 data class Monitor(val name: String, val available: Boolean, val complete: Boolean)
 

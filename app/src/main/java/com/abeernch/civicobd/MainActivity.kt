@@ -348,6 +348,11 @@ class MainActivity : ComponentActivity() {
         jump = t to ++jumpCount
     }
 
+    override fun onStart() {
+        super.onStart()
+        startServiceIfAllowed()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleOpen(intent)
@@ -544,7 +549,8 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
         if (ok) {
-            ObdService.start(this)
+            // Opening the app is the cue to switch Bluetooth on and look for the adapter.
+            ObdService.wake(this)
         } else {
             LiveBus.update { it.copy(status = "Allow Bluetooth to connect") }
         }
