@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -425,20 +424,25 @@ fun Readouts(items: List<Readout>, modifier: Modifier = Modifier, size: TextUnit
     val line = Lux.Line
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    Column(modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(line))
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            items.forEachIndexed { i, r ->
-                if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(line))
-                BoxWithConstraints(Modifier.weight(1f).semantics(mergeDescendants = true) {}, contentAlignment = Alignment.TopCenter) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        // Each column's share of the width; a long figure (a four-digit cost, say) steps down in size to fit it.
+        val room = with(density) { (maxWidth / items.size.coerceAtLeast(1) - 8.dp).toPx() }
+        Column(Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth()) {
+                items.forEachIndexed { i, r ->
                     val text = valueWithUnit(r.value, r.unit)
                     val style = lux(size, FontWeight.Light, r.color ?: Lux.Txt).copy(lineHeight = size * 1.2f)
-                    // A long figure (a four-digit cost, say) steps down in size rather than being cut off.
-                    val room = with(density) { (maxWidth - 6.dp).toPx() }
                     val wide = measurer.measure(text, style).size.width
                     val fitted = if (wide > room && wide > 0) style.copy(fontSize = size * (room / wide)) else style
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .drawBehind { if (i > 0) drawLine(line, Offset(0f, 0f), Offset(0f, this.size.height), 1.dp.toPx()) }
+                            .semantics(mergeDescendants = true) {},
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         Text(r.label, style = lux(9.5.sp, FontWeight.Normal, Lux.Dim, 2.2.sp), maxLines = 1)
                         Spacer(Modifier.height(2.dp))
                         Text(text, style = fitted, maxLines = 1, textAlign = TextAlign.Center)
