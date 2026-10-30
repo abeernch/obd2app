@@ -3,7 +3,6 @@ package com.abeernch.civicobd.ui
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.SurfaceTexture
-import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
 import androidx.annotation.RawRes
@@ -568,11 +567,11 @@ fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = 
 @Composable
 fun ClipPlayer(@RawRes res: Int, modifier: Modifier = Modifier, alpha: Float = 1f, onEnd: () -> Unit = {}) {
     val end by rememberUpdatedState(onEnd)
-    val holder = remember { arrayOfNulls<MediaPlayer>(1) }
+    val playing = remember { arrayOfNulls<ClipThread>(1) }
     val surface = remember { arrayOfNulls<Surface>(1) }
-    fun release() {
-        holder[0]?.let { runCatching { it.release() } }
-        holder[0] = null
+    fun stop() {
+        playing[0]?.halt()
+        playing[0] = null
         surface[0]?.let { runCatching { it.release() } }
         surface[0] = null
     }
@@ -587,26 +586,14 @@ fun ClipPlayer(@RawRes res: Int, modifier: Modifier = Modifier, alpha: Float = 1
                 setLayerPaint(paint(alpha))
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                        try {
-                            val mp = MediaPlayer()
-                            holder[0] = mp
-                            ctx.resources.openRawResourceFd(res).use { fd -> mp.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length) }
-                            val sf = Surface(st)
-                            surface[0] = sf
-                            mp.setSurface(sf)
-                            mp.setVolume(0f, 0f)
-                            mp.setOnCompletionListener { end() }
-                            mp.setOnErrorListener { _, _, _ -> end(); true }
-                            mp.setOnPreparedListener { it.start() }
-                            mp.prepareAsync()
-                        } catch (e: Exception) {
-                            end()
-                        }
+                        val sf = Surface(st)
+                        surface[0] = sf
+                        playing[0] = ClipThread(ctx.applicationContext, res, sf) { end() }.also { it.start() }
                     }
 
                     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
                     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                        release()
+                        stop()
                         return true
                     }
 
@@ -623,7 +610,95 @@ fun ClipPlayer(@RawRes res: Int, modifier: Modifier = Modifier, alpha: Float = 1
         },
         modifier = modifier,
     )
-    DisposableEffect(Unit) { onDispose { release() } }
+    DisposableEffect(Unit) { onDispose { stop() } }
+}
+
+/**
+ * Decodes the clip onto a surface at its own frame rate, on a thread of its own. Prefers the phone's
+ * software H.264 decoder: a few seconds of a small clip cost nothing, and it behaves the same on every
+ * phone and on the test emulator (whose hardware decoder runs in the emulator itself and can bring it down).
+ */
+class ClipThread(
+    private val context: android.content.Context,
+    @RawRes private val res: Int,
+    private val surface: Surface,
+    private val onEnd: () -> Unit,
+) : Thread("clip") {
+    @Volatile private var halted = false
+
+    /** Stops playback and waits briefly for the decoder to let go of the surface. */
+    fun halt() {
+        halted = true
+        interrupt()
+        runCatching { join(600) }
+    }
+
+    override fun run() {
+        var extractor: android.media.MediaExtractor? = null
+        var codec: android.media.MediaCodec? = null
+        try {
+            val ex = android.media.MediaExtractor().also { extractor = it }
+            context.resources.openRawResourceFd(res).use { fd -> ex.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length) }
+            val track = (0 until ex.trackCount).firstOrNull {
+                ex.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("video/") == true
+            } ?: return
+            ex.selectTrack(track)
+            val format = ex.getTrackFormat(track)
+            val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: return
+            val c = decoderFor(mime).also { codec = it }
+            c.configure(format, surface, null, 0)
+            c.start()
+            val info = android.media.MediaCodec.BufferInfo()
+            var inputDone = false
+            var startNs = -1L
+            while (!halted) {
+                if (!inputDone) {
+                    val i = c.dequeueInputBuffer(5_000)
+                    if (i >= 0) {
+                        val buffer = c.getInputBuffer(i)
+                        val n = if (buffer == null) -1 else ex.readSampleData(buffer, 0)
+                        if (n < 0) {
+                            c.queueInputBuffer(i, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            c.queueInputBuffer(i, 0, n, ex.sampleTime, 0)
+                            ex.advance()
+                        }
+                    }
+                }
+                val o = c.dequeueOutputBuffer(info, 5_000)
+                if (o >= 0) {
+                    val show = info.size > 0
+                    if (show) {
+                        // Each frame at its own time, counted from the first one shown.
+                        if (startNs < 0) startNs = System.nanoTime() - info.presentationTimeUs * 1_000
+                        val wait = startNs + info.presentationTimeUs * 1_000 - System.nanoTime()
+                        if (wait > 0) sleep(wait / 1_000_000, (wait % 1_000_000).toInt())
+                    }
+                    c.releaseOutputBuffer(o, show)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+        } catch (_: InterruptedException) {
+        } catch (_: Exception) {
+        } finally {
+            codec?.let { runCatching { it.stop() }; runCatching { it.release() } }
+            extractor?.let { runCatching { it.release() } }
+            if (!halted) android.os.Handler(android.os.Looper.getMainLooper()).post(onEnd)
+        }
+    }
+
+    private fun decoderFor(mime: String): android.media.MediaCodec {
+        val candidates = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
+            !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+        }
+        val software = candidates.firstOrNull { info ->
+            if (android.os.Build.VERSION.SDK_INT >= 29) info.isSoftwareOnly
+            else info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.")
+        }
+        return software?.let { runCatching { android.media.MediaCodec.createByCodecName(it.name) }.getOrNull() }
+            ?: android.media.MediaCodec.createDecoderByType(mime)
+    }
 }
 
 /** The car's outline with its lights off: the clip's resting frame, blended the same way. */
