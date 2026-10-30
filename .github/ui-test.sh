@@ -80,20 +80,20 @@ burst() {  # burst NAME COUNT
   for n in $(seq -w 1 "$2"); do adb exec-out screencap -p > "$OUT/$1_$n.png"; done
 }
 
-# 1. Cold start with the demo car switched on. Frames of the splash, plus a recording attempt.
-adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 10 /sdcard/splash.mp4 &
+# 1. Cold start with the demo car switched on: the splash, the drive welcome (the car's lights come up,
+#    a greeting), then the cluster sweeping awake. Frames throughout, plus a recording attempt.
+adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 14 /sdcard/splash.mp4 &
 REC=$!
 sleep 2
 adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
-burst splash 12
+burst start 40
 wait $REC
 adb pull /sdcard/splash.mp4 "$OUT/splash.mp4"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
-sleep 22; shot 03_drive_accelerating
-# The fuel indicator beside the main number switches style when tapped (right edge, about a fifth down).
-adb shell input tap 960 560; sleep 2; shot 03c_fuel_bar
-adb shell input tap 960 560; sleep 1
+sleep 14; shot 03_drive_accelerating
+# Press a control and catch the light passing across it (the Bluetooth tile just looks for the adapter again).
+xy=$(pos_text "BLUETOOTH"); if [ -n "$xy" ]; then adb shell input tap $xy; burst 03c_tile_press 4; fi
 sleep 20; shot 04_drive_cruise
 
 # 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.
@@ -143,7 +143,7 @@ tap_text "Settings"; sleep 2
 tap_text "Grand prix"; sleep 2; shot 09e_settings_grandprix
 tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
 tap_text "Settings"; sleep 2
-tap_text "Papaya night"; sleep 2
+tap_text "Night"; sleep 2
 
 # 5. Park the car: switching the demo off stops the engine; 60 s later the trip ends with a summary.
 tap_text "Settings"; sleep 2
@@ -151,8 +151,12 @@ scroll_tap "Stop demo drive"; sleep 95
 adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
 adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked
-# End the paused drive, so it can be merged later on.
-tap_text "End drive now"; sleep 25; shot 10f_drive_ended
+adb shell settings put system user_rotation 1; sleep 4; shot 10d2_parked_landscape
+adb shell settings put system user_rotation 0; sleep 4
+# End the paused drive, so it can be merged later on: the goodbye plays (the car's lights go out).
+tap_text "End drive now"; burst 10e_goodbye 30; sleep 4; shot 10f_drive_ended
+adb shell settings put system user_rotation 1; sleep 4; shot 10f2_ended_landscape
+adb shell settings put system user_rotation 0; sleep 4
 tap_text "Stats"; sleep 2; shot 10_stats_week
 # The period is a menu now: open it, then pick Today.
 tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu
@@ -174,14 +178,17 @@ adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
 # 6. Trips: the list, an imported drive's page, then the demo drive's page and route map.
 tap_text "Trips"; sleep 2; shot 13_trips_list
-tap_text "Car Scanner"; sleep 3; shot 14_trip_imported
-adb shell input swipe 540 1800 540 700 400; sleep 1.5
-adb shell input tap 700 1200; sleep 1.5; shot 15_recording_marker
-scroll_tap "One plot"; sleep 2; shot 16_recording_combined
+tap_text "Car Scanner"; sleep 4; shot 14_trip_imported
+adb shell input swipe 540 1800 540 700 400; sleep 1.5; shot 14b_trip_imported_lower
+# The chart: one plot for every reading picked. Place the marker, then add RPM.
+tap_text "Chart"; sleep 3; shot 15_trip_chart
+xy=$(pos_text "Drag across the chart"); if [ -n "$xy" ]; then set -- $xy; adb shell input tap 540 $(( $2 + 400 )); fi; sleep 1.5; shot 15b_trip_chart_marker
+tap_text "RPM"; sleep 2; shot 16_trip_chart_rpm
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 # The newest drive is the demo one; every card shows "km/L", so the first match is the top card.
-tap_text "km/L"; sleep 3; shot 18_trip_demo
-tap_text "Route map"; sleep 8; shot 20_route_map
+tap_text "km/L"; sleep 4; shot 18_trip_demo
+adb shell input swipe 540 1800 540 900 400; sleep 2; shot 18a_trip_demo_map
+tap_text "Open the full-screen map"; sleep 8; shot 20_route_map
 # Press and hold on the map, then slide: the marker should snap to the route and follow it.
 adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
 adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub

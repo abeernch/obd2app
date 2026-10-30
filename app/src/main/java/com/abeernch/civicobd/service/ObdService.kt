@@ -606,7 +606,7 @@ class ObdService : Service() {
     private fun resumeIfPaused() {
         if (!summaryShown) return
         summaryShown = false
-        LiveBus.update { it.copy(tripPaused = false) }
+        LiveBus.update { it.copy(tripPaused = false, pausedUntilMs = 0) }
         Alerts.cancelTrip(this)
         if (!settings.demo) route.start()
         LiveBus.log("Drive continues")
@@ -767,10 +767,15 @@ class ObdService : Service() {
         // With the ignition on and the engine off (waiting at a signal), the engine computer keeps
         // answering, so the drive is neither paused nor ended. Only once it falls silent (ignition
         // off or adapter unplugged) does the one-minute pause and ten-minute end apply.
-        val parkedFor = now - maxOf(lastRunningMs, lastIgnitionMs)
+        val stoppedAt = maxOf(lastRunningMs, lastIgnitionMs)
+        val parkedFor = now - stoppedAt
         when {
             parkedFor > CONTINUE_MS -> closeTrip(lastRunningMs)
             parkedFor > PAUSE_MS && !summaryShown -> pauseTrip()
+        }
+        // Keep the Drive tab's countdown true, for example if the ignition was turned on for a moment.
+        if (summaryShown && trip.active && LiveBus.state.value.pausedUntilMs != stoppedAt + CONTINUE_MS) {
+            LiveBus.update { it.copy(pausedUntilMs = stoppedAt + CONTINUE_MS) }
         }
     }
 
@@ -778,7 +783,8 @@ class ObdService : Service() {
         summaryShown = true
         saveTrip(lastRunningMs)
         flushSamples(lastRunningMs)
-        LiveBus.update { it.copy(tripPaused = true) }
+        val until = maxOf(lastRunningMs, lastIgnitionMs) + CONTINUE_MS
+        LiveBus.update { it.copy(tripPaused = true, pausedUntilMs = until) }
         route.stop() // no tracking while parked; it restarts with the engine
         LiveBus.log("Parked. The drive continues if the engine starts within 10 minutes")
         if (trip.distanceKm >= 0.1) showSummary(paused = true)
@@ -819,7 +825,7 @@ class ObdService : Service() {
             showSummary(paused = false, offerLocationOff = takeLocationOffer())
         }
         summaryShown = false
-        LiveBus.update { it.copy(tripPaused = false) }
+        LiveBus.update { it.copy(tripPaused = false, pausedUntilMs = 0) }
         recId = -1
         lastTickMs = 0L
         route.stop()

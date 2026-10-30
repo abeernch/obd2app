@@ -95,9 +95,24 @@ class MainActivity : ComponentActivity() {
             startServiceIfAllowed()
         }
 
+    // ---- The drive welcome: played when the app is opened for a drive ----
+
+    // True when the welcome should play: a fresh start, or back after five minutes or more away.
+    private var introArmed by mutableStateOf(false)
+    // The app under the welcome may rise into view (from 6.2 s into it).
+    private var introRevealed by mutableStateOf(false)
+    // When the Drive tab's cluster sweeps awake, set by the welcome.
+    private var wakeAtMs by mutableStateOf(0L)
+    // The splash has gone (or never showed), so the welcome may start.
+    private var splashOver by mutableStateOf(false)
+    // When the app last went out of sight; kept across rotation.
+    private var stoppedAtMs = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
+        stoppedAtMs = savedInstanceState?.getLong("stoppedAtMs") ?: 0L
+        introArmed = savedInstanceState == null
         // Map tiles are cached inside the app's own folders; the user agent identifies the app to the tile server.
         org.osmdroid.config.Configuration.getInstance().apply {
             userAgentValue = packageName
@@ -152,6 +167,7 @@ class MainActivity : ComponentActivity() {
         // Apply the saved look before the first frame, so there is no flash of the wrong theme.
         val systemDarkNow = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
+        Appearance.upgradeOnce(settings)
         Appearance.apply(settings, systemDarkNow)
 
         handleOpen(intent)
@@ -240,25 +256,63 @@ class MainActivity : ComponentActivity() {
             // The floating window follows the trip: it may open only while one is running.
             LaunchedEffect(live.trip.active) { updatePip() }
 
-            // The last finished drive, shown on Drive while parked.
-            var lastTrip by remember { mutableStateOf<com.abeernch.civicobd.core.TripSummary?>(null) }
-            LaunchedEffect(live.tripsVersion) {
-                lastTrip = withContext(Dispatchers.IO) {
-                    store.between(0, Long.MAX_VALUE).firstOrNull()?.let { com.abeernch.civicobd.core.TripSummary.of(it, store) }
+            // The drive that has just ended, for the goodbye on Drive. Cleared when the next one starts.
+            var completed by remember { mutableStateOf<com.abeernch.civicobd.ui.CompletedDrive?>(null) }
+            val previousTrip = remember { longArrayOf(live.trip.id) }
+            LaunchedEffect(live.trip.id) {
+                val id = live.trip.id
+                val ended = previousTrip[0]
+                previousTrip[0] = id
+                if (id >= 0) {
+                    completed = null
+                } else if (ended >= 0) {
+                    completed = withContext(Dispatchers.IO) {
+                        // A drive under 100 m is not kept, so there is nothing to say goodbye to.
+                        store.byId(ended)?.let { row ->
+                            com.abeernch.civicobd.ui.CompletedDrive(
+                                com.abeernch.civicobd.core.TripSummary.of(row, store),
+                                runCatching {
+                                    com.abeernch.civicobd.core.RouteContexts.of(row, store, recordings, com.abeernch.civicobd.ui.routeNames(settings))
+                                }.getOrNull(),
+                            )
+                        }
+                    }
                 }
             }
+
+            // The welcome: not while moving (the gauges matter more), and never over the HUD or floating window.
+            LaunchedEffect(introArmed) {
+                if (!introArmed) return@LaunchedEffect
+                val now = LiveBus.state.value
+                val moving = now.link == com.abeernch.civicobd.core.Link.Live && (now.values[0x0D] ?: 0.0) > 5
+                if (moving) {
+                    introArmed = false
+                } else {
+                    completed = null
+                    introRevealed = false
+                    driveJump++
+                }
+            }
+            val introOn = introArmed && !hud && !inPip
 
             // The app stays composed underneath the head-up display and the floating window, so
             // leaving either returns to the same tab, without the splash playing again.
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-            AppShell(live, driveJump, jump) { tab ->
+            AppShell(live, driveJump, jump, hold = introOn && !introRevealed, onSplashFinished = { splashOver = true }) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
                         locationOk = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) ==
                             PackageManager.PERMISSION_GRANTED,
                         onHud = { hud = true },
-                        lastTrip = lastTrip,
+                        completed = completed,
+                        onGoodbyePlayed = { completed = completed?.copy(played = true) },
+                        onViewDrive = { id ->
+                            openTripId = id
+                            jump = Tab.Trips to ++jumpCount
+                        },
+                        wakeAtMs = wakeAtMs,
+                        onLocation = ::openLocation,
                     )
                     Tab.Trips -> com.abeernch.civicobd.ui.TripsScreen(
                         store = store,
@@ -326,6 +380,13 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            if (introOn && splashOver) {
+                com.abeernch.civicobd.ui.DriveIntro(
+                    onReveal = { introRevealed = true },
+                    onWakeAt = { wakeAtMs = it },
+                    onDone = { introArmed = false; introRevealed = false },
+                )
+            }
             if (hud) HudScreen(live) { hud = false }
             if (inPip) com.abeernch.civicobd.ui.PipView(live)
             }
@@ -352,6 +413,31 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         startServiceIfAllowed()
         checkLocationSwitch()
+        // Back after five minutes or more: treat it as opening the app for a drive.
+        if (stoppedAtMs > 0 && System.currentTimeMillis() - stoppedAtMs > 5 * 60_000L) introArmed = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        stoppedAtMs = System.currentTimeMillis()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putLong("stoppedAtMs", if (stoppedAtMs > 0) stoppedAtMs else System.currentTimeMillis())
+    }
+
+    /** The GPS control, when location is off or not allowed: the switch in Settings, or the permission. */
+    private fun openLocation() {
+        if (LiveBus.state.value.locationOff) {
+            settings.locOnByApp = true
+            try {
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            } catch (_: Exception) {
+            }
+        } else {
+            askPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
     }
 
     /** Shows the "Location is off" strip while the phone's location switch is off. */

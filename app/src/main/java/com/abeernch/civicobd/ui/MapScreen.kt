@@ -357,7 +357,7 @@ fun RouteMapScreen(
 }
 
 @Composable
-private fun RouteMap(
+internal fun RouteMap(
     points: List<RoutePoint>,
     colors: IntArray,
     stops: List<com.abeernch.civicobd.core.Stop>,

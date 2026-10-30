@@ -34,14 +34,19 @@ object Type {
     val label: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(15f), color = Palette.Label, letterSpacing = 0.1.sp)
     val section: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(17.5f), fontWeight = FontWeight.Medium, color = Palette.Label, letterSpacing = 0.3.sp)
     val body: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(17f), color = Palette.Value, fontFeatureSettings = "tnum")
-    val title: TextStyle get() = TextStyle(fontFamily = Sans, fontSize = sz(27f), fontWeight = FontWeight.SemiBold, color = Palette.Value)
+    val title: TextStyle get() = TextStyle(
+        fontFamily = Sans, fontSize = sz(if (Fonts.light) 25f else 27f),
+        fontWeight = if (Fonts.light) FontWeight.Medium else FontWeight.SemiBold, color = Palette.Value,
+    )
     val value: TextStyle get() = TextStyle(
-        fontFamily = Numeric, fontSize = sz(38f), fontWeight = FontWeight.Bold,
-        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(42f),
+        fontFamily = Numeric, fontSize = sz(if (Fonts.light) 34f else 38f),
+        fontWeight = if (Fonts.light) FontWeight.Medium else FontWeight.Bold,
+        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(if (Fonts.light) 39f else 42f),
     )
     val hero: TextStyle get() = TextStyle(
-        fontFamily = Numeric, fontSize = sz(120f), fontWeight = FontWeight.Bold,
-        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(118f),
+        fontFamily = Numeric, fontSize = sz(if (Fonts.light) 110f else 120f),
+        fontWeight = if (Fonts.light) FontWeight.Medium else FontWeight.Bold,
+        color = Palette.Value, fontFeatureSettings = "tnum", lineHeight = sz(if (Fonts.light) 110f else 118f),
     )
     val mono: TextStyle get() = TextStyle(fontFamily = Mono, fontSize = sz(12f), color = Palette.Label, lineHeight = sz(17f))
 }

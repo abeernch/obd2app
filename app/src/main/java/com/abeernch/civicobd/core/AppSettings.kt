@@ -46,12 +46,17 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putString("text_size", value).apply()
 
     var accent: String
-        get() = prefs.getString("accent", "Papaya") ?: "Papaya"
+        get() = prefs.getString("accent", "Gold") ?: "Gold"
         set(value) = prefs.edit().putString("accent", value).apply()
 
     var face: String
-        get() = prefs.getString("face", "Barlow") ?: "Barlow"
+        get() = prefs.getString("face", "Saira") ?: "Saira"
         set(value) = prefs.edit().putString("face", value).apply()
+
+    /** Bumped when a redesign changes defaults that should apply once to existing installs. */
+    var designVersion: Int
+        get() = prefs.getInt("design_version", 1)
+        set(value) = prefs.edit().putInt("design_version", value).apply()
 
     /** Fuel tank size in litres. 50 L for the 7th-generation Civic. */
     var tankL: Double

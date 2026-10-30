@@ -56,7 +56,14 @@ enum class Tab(val label: String) { Drive("Drive"), Trips("Trips"), Stats("Stats
  * the current screen, and the bottom tab bar with a sliding orange indicator.
  */
 @Composable
-fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, screen: @Composable (Tab) -> Unit) {
+fun AppShell(
+    live: LiveState,
+    driveJump: Int = 0,
+    jump: Pair<Tab, Int>? = null,
+    hold: Boolean = false,
+    onSplashFinished: () -> Unit = {},
+    screen: @Composable (Tab) -> Unit,
+) {
     var tab by rememberSaveable { mutableStateOf(Tab.Drive) }
     androidx.compose.runtime.LaunchedEffect(driveJump) { if (driveJump > 0) tab = Tab.Drive }
     // A notification opened the app on a particular tab (the number makes each request unique).
@@ -66,9 +73,18 @@ fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, 
     // the moment the splash starts to leave. It then rises into place while the splash fades:
     // a crossfade, never a blank frame.
     var revealed by rememberSaveable { mutableStateOf(false) }
-    val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.fade(480), label = "reveal")
+    // While the drive welcome plays over the app, the app waits out of sight, then rises in under it.
+    val reveal by animateFloatAsState(if (revealed && !hold) 1f else 0f, Motion.fade(480), label = "reveal")
+    androidx.compose.runtime.LaunchedEffect(splashDone) { if (splashDone) onSplashFinished() }
 
-    Box(Modifier.fillMaxSize().background(Palette.Background)) {
+    // On Drive, a soft lift of dark grey behind the instruments, falling to black; it fades with the tab.
+    val lux by animateFloatAsState(if (tab == Tab.Drive) 1f else 0f, Motion.fade(350), label = "luxPage")
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Palette.Background)
+            .drawBehind { with(Lux) { drawLuxPage(lux) } }
+    ) {
         run {
             Column(
                 Modifier
@@ -87,7 +103,8 @@ fun AppShell(live: LiveState, driveJump: Int = 0, jump: Pair<Tab, Int>? = null, 
                 val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
                     android.content.res.Configuration.ORIENTATION_LANDSCAPE
                 if (!(landscape && tab == Tab.Drive)) Header(live)
-                if (live.locationOff) LocationStrip()
+                // On Drive the GPS control shows the same thing, so the strip is not repeated there.
+                if (live.locationOff && tab != Tab.Drive) LocationStrip()
                 Box(Modifier.weight(1f)) {
                     AnimatedContent(
                         targetState = tab,
@@ -174,55 +191,34 @@ private fun Header(live: LiveState) {
 
 @Composable
 private fun TabBar(selected: Tab, onPick: (Tab) -> Unit) {
-    // A slightly raised panel, separated from the screen by a hairline.
-    Column(Modifier.fillMaxWidth().background(Palette.Surface)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 8.dp, bottom = 6.dp)) {
+    // A near-black panel under a hairline. A short accent bar sits over the chosen tab and glides
+    // to the next one: its leading end runs ahead and the trailing end follows, then it settles.
+    val dark = Palette.isDark
+    Column(Modifier.fillMaxWidth().background(if (dark) Color(0xFF050608) else Palette.Surface)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(if (dark) Color(0xFF14171C) else Palette.Hairline))
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 6.dp)) {
             val slot = maxWidth / Tab.entries.size
-            val pillWidth = 52.dp
-            val home = slot * selected.ordinal + (slot - pillWidth) / 2
-
-            // Elastic indicator: the edge leading the move runs ahead, the trailing edge follows,
-            // so the pill stretches in flight and settles back to its size on arrival.
+            val barWidth = 16.dp
+            val home = slot * selected.ordinal + (slot - barWidth) / 2
             val leadFast = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.8f, stiffness = 900f)
             val trailSlow = androidx.compose.animation.core.spring<Dp>(dampingRatio = 0.85f, stiffness = 300f)
-            // Direction is fixed once per tab change, so the springs do not swap mid-flight.
             val previous = androidx.compose.runtime.remember { intArrayOf(selected.ordinal) }
             val movingRight = androidx.compose.runtime.remember(selected) {
                 val right = selected.ordinal >= previous[0]
                 previous[0] = selected.ordinal
                 right
             }
-            val left by animateDpAsState(home, if (movingRight) trailSlow else leadFast, label = "glowLeft")
-            val right by animateDpAsState(home + pillWidth, if (movingRight) leadFast else trailSlow, label = "glowRight")
-
-            // A diffused cloud of accent colour behind the chosen icon: brightest at the centre,
-            // fading to nothing, with no edge. It stretches in flight like the pill did.
-            val glow = Palette.Accent
-            val spread = 22.dp
+            val left by animateDpAsState(home, if (movingRight) trailSlow else leadFast, label = "barLeft")
+            val right by animateDpAsState(home + barWidth, if (movingRight) leadFast else trailSlow, label = "barRight")
             Box(
                 Modifier
-                    .offset(x = left - spread, y = (-6).dp)
-                    .width((right - left).coerceAtLeast(pillWidth / 2) + spread * 2)
-                    .height(56.dp)
-                    .drawBehind {
-                        val r = size.height / 2
-                        scale(scaleX = size.width / size.height, scaleY = 1f, pivot = center) {
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    0f to glow.copy(alpha = if (Palette.isDark) 0.42f else 0.30f),
-                                    0.45f to glow.copy(alpha = if (Palette.isDark) 0.16f else 0.12f),
-                                    1f to glow.copy(alpha = 0f),
-                                    center = center,
-                                    radius = r,
-                                ),
-                                radius = r,
-                                center = center,
-                            )
-                        }
-                    }
+                    .offset(x = left)
+                    .width((right - left).coerceAtLeast(barWidth / 2))
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(Palette.Accent)
             )
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(top = 7.dp)) {
                 Tab.entries.forEach { t ->
                     TabButton(t, t == selected, Modifier.weight(1f)) { onPick(t) }
                 }
@@ -233,29 +229,24 @@ private fun TabBar(selected: Tab, onPick: (Tab) -> Unit) {
 
 @Composable
 private fun TabButton(tab: Tab, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val iconColor by animateColorAsState(if (on) Palette.Accent else Palette.Label, Motion.fade(250), label = "tabIcon")
-    val textColor by animateColorAsState(if (on) Palette.Value else Palette.Label, Motion.fade(250), label = "tabText")
-    // The chosen icon rises a touch, like a key being lifted.
-    val rise by animateFloatAsState(if (on) -1.5f else 0f, Motion.glide(), label = "rise")
+    val rest = if (Palette.isDark) Color(0xFF7D8592) else Palette.Label
+    val iconColor by animateColorAsState(if (on) Palette.Accent else rest, Motion.fade(250), label = "tabIcon")
+    val textColor by animateColorAsState(if (on) Palette.Value else rest, Motion.fade(250), label = "tabText")
     Column(
         modifier
-            .height(58.dp)
+            .height(54.dp)
             .pressable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            Modifier
-                .height(34.dp)
-                .graphicsLayer { translationY = rise * density },
-            contentAlignment = Alignment.Center,
-        ) { tabIcon(tab, iconColor, 21.dp) }
-        Spacer(Modifier.height(4.dp))
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.Center) { tabIcon(tab, iconColor, 20.dp) }
+        Spacer(Modifier.height(3.dp))
         Text(
             tab.label,
             style = Type.label.copy(
                 color = textColor,
-                fontSize = Type.sz(13f),
-                fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                fontSize = Type.sz(12f),
+                letterSpacing = androidx.compose.ui.unit.TextUnit(0.4f, androidx.compose.ui.unit.TextUnitType.Sp),
+                fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
             ),
         )
     }

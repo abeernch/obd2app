@@ -7,14 +7,22 @@ object Appearance {
 
     fun mode(s: AppSettings) = Mode.entries.firstOrNull { it.name == s.mode } ?: Mode.Dark
     fun size(s: AppSettings) = TextSize.entries.firstOrNull { it.name == s.textSize } ?: TextSize.Standard
-    fun accent(s: AppSettings) = Accent.entries.firstOrNull { it.name == s.accent } ?: Accent.Papaya
-    fun face(s: AppSettings) = Face.entries.firstOrNull { it.name == s.face } ?: Face.Barlow
+    fun accent(s: AppSettings) = Accent.entries.firstOrNull { it.name == s.accent } ?: Accent.Gold
+    fun face(s: AppSettings) = Face.entries.firstOrNull { it.name == s.face } ?: Face.Saira
 
     /** True when the screens should be dark, given the phone's own setting. */
     fun isDark(s: AppSettings, systemDark: Boolean) = when (mode(s)) {
         Mode.Auto -> systemDark
         Mode.Dark -> true
         Mode.Light -> false
+    }
+
+    /** Once, on the first start of the redesigned version: switch to its typeface and gold accent. */
+    fun upgradeOnce(s: AppSettings) {
+        if (s.designVersion >= 2) return
+        s.face = Face.Saira.name
+        s.accent = Accent.Gold.name
+        s.designVersion = 2
     }
 
     fun apply(s: AppSettings, systemDark: Boolean) {

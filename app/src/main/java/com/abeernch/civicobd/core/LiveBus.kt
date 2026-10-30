@@ -45,8 +45,9 @@ data class LiveState(
     val fuelPrice: Double = 390.0,     // PKR per litre, mirrored from settings
     val log: List<String> = emptyList(),
     val position: LivePosition? = null, // latest GPS fix during a trip
-    val tripPaused: Boolean = false,
-    val locationOff: Boolean = false,    // the phone's location switch is off, so routes can't be recorded     // engine off mid-drive: the drive continues if it restarts within 10 min
+    val tripPaused: Boolean = false,     // engine off mid-drive: the drive continues if it restarts within 10 min
+    val pausedUntilMs: Long = 0,         // while paused: when the drive will be closed, for the countdown
+    val locationOff: Boolean = false,    // the phone's location switch is off, so routes can't be recorded
 )
 
 /** Where the car is now. Bearing is the direction of travel in degrees from north, null until it has moved. */

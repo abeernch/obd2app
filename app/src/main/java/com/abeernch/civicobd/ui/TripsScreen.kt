@@ -105,27 +105,16 @@ fun TripsScreen(
         AllDrivesMap(recordings, version, settings) { heatOpen = false }
         return
     }
-    // One drive: its summary, then the charts and the route map button
+    // One drive: its figures up front, then the map or a chart, then the engine.
     open?.let { trip ->
-        BackHandler { open = null }
         val rec = recs[trip.id]
-        var summary by remember(trip.id) { mutableStateOf<TripSummary?>(null) }
-        LaunchedEffect(trip.id) { summary = withContext(Dispatchers.IO) { TripSummary.of(trip, store) } }
-        val header: @Composable () -> Unit = {
-            Box(Modifier.padding(horizontal = 20.dp)) { summary?.let { TripSummaryCard(it) } }
-        }
-        if (rec != null) {
-            RecordingView(
-                recordings, rec, onBack = { open = null }, onExport = onExport,
-                onDelete = { onDelete(trip, rec); open = null }, onMap = { mapFor = rec }, header = header,
-            )
-        } else {
-            Column(Modifier.fillMaxSize().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                BackRow("${dayFmt.format(Date(trip.startMs))}, ${clockFmt.format(Date(trip.startMs))}") { open = null }
-                header()
-                Text("This drive has no recording, only its totals.", style = Type.label, modifier = Modifier.padding(horizontal = 20.dp))
-            }
-        }
+        DriveDetail(
+            trip, rec, store, recordings, settings,
+            onBack = { open = null },
+            onExport = { r, kind -> onExport(r, emptyList(), kind) },
+            onDelete = { onDelete(trip, rec); open = null },
+            onFullMap = { rec?.let { mapFor = it } },
+        )
         return
     }
 
@@ -178,17 +167,6 @@ fun TripsScreen(
         } else {
             RoutesView(trips, recs, recordings, settings, onOpen = { open = it }, onAllDrivesMap = { heatOpen = true })
         }
-    }
-}
-
-@Composable
-private fun BackRow(title: String, onBack: () -> Unit) {
-    Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            "Back", style = Type.body.copy(color = Palette.Accent),
-            modifier = Modifier.pressable(onClick = onBack).padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
-        )
-        Text(title, style = Type.title, maxLines = 1)
     }
 }
 
@@ -278,45 +256,6 @@ private fun DriveCard(t: TripRow, source: String?, pick: Pair<Boolean, Boolean>?
     }
 }
 
-/** The figures of one finished drive. Used on Drive when parked and at the top of a drive's page. */
-@Composable
-fun TripSummaryCard(s: TripSummary, title: String? = null) {
-    val t = s.trip
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, Palette.Hairline, RoundedCornerShape(14.dp))
-            .padding(16.dp)
-    ) {
-        Text(
-            title ?: "${dayFmt.format(Date(t.startMs))}  ${clockFmt.format(Date(t.startMs))} to ${clockFmt.format(Date(t.endMs))}",
-            style = Type.section,
-        )
-        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 8.dp)) {
-            Text(fmt(s.kmPerL), style = Type.value.copy(fontSize = Type.sz(52f), lineHeight = Type.sz(54f)))
-            Text("  km/L", style = Type.label.copy(fontSize = Type.sz(16f)), modifier = Modifier.padding(bottom = 8.dp))
-        }
-        s.versusAverage?.let { v ->
-            val better = (s.kmPerL ?: 0.0) >= (s.averageKmL ?: 0.0)
-            Text(
-                "$v of ${fmt(s.averageKmL)}",
-                style = Type.label.copy(color = if (better) Palette.Accent else Palette.Caution),
-            )
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            Tile("Distance", fmt(t.distanceKm, 1), "km", Modifier.weight(1f))
-            Tile("Time", "${s.minutes.toInt()}", "min", Modifier.weight(1f))
-            Tile("Cost", "%,d".format(t.cost.toLong()), "Rs", Modifier.weight(1f))
-        }
-        Row(Modifier.fillMaxWidth()) {
-            Tile("Average", fmt(s.avgSpeed, 0), "km/h", Modifier.weight(1f))
-            Tile("Top", fmt(t.maxSpeed, 0), "km/h", Modifier.weight(1f))
-            Tile("Standing", "${(t.idleS / 60).toInt()}", "min", Modifier.weight(1f))
-        }
-    }
-}
-
 // ---- Routes ----
 
 @Composable
@@ -365,7 +304,7 @@ private fun RoutesView(
     }
 }
 
-private fun routeNames(settings: AppSettings): Map<Long, String> = try {
+internal fun routeNames(settings: AppSettings): Map<Long, String> = try {
     val o = JSONObject(settings.routeNames)
     o.keys().asSequence().associate { it.toLong() to o.getString(it) }
 } catch (_: Exception) {

@@ -18,15 +18,17 @@ enum class TextSize(val label: String, val scale: Float) {
 
 /** Accent colours, each with a dark-mode and a deeper light-mode shade for contrast. */
 enum class Accent(val label: String, val dark: Color, val light: Color) {
+    Gold("Gold", Color(0xFFF0A54E), Color(0xFFB0701A)),
     Papaya("Papaya", Color(0xFFFF8000), Color(0xFFD96500)),
     Ice("Ice blue", Color(0xFF4CC9E0), Color(0xFF0A7FA3)),
     Lime("Lime", Color(0xFFC6F432), Color(0xFF4F7D00)),
 }
 
-enum class Face(val label: String) { Barlow("Barlow"), Titillium("Titillium") }
+enum class Face(val label: String) { Saira("Saira"), Barlow("Barlow"), Titillium("Titillium") }
 
 /** Ready-made combinations of the four choices. */
 enum class Preset(val label: String, val mode: Mode, val size: TextSize, val accent: Accent, val face: Face) {
+    Night("Night", Mode.Dark, TextSize.Standard, Accent.Gold, Face.Saira),
     PapayaNight("Papaya night", Mode.Dark, TextSize.Standard, Accent.Papaya, Face.Barlow),
     GrandPrix("Grand prix", Mode.Dark, TextSize.Large, Accent.Lime, Face.Titillium),
     Daylight("Daylight", Mode.Light, TextSize.Large, Accent.Ice, Face.Barlow),
@@ -78,6 +80,28 @@ object Palette {
     }
 }
 
+// Saira: a clean, slightly squared sans with a light weight for big instrument figures.
+private val Saira = FontFamily(
+    Font(R.font.saira_extralight, FontWeight.ExtraLight),
+    Font(R.font.saira_light, FontWeight.Light),
+    Font(R.font.saira_regular, FontWeight.Normal),
+    Font(R.font.saira_medium, FontWeight.Medium),
+    Font(R.font.saira_semibold, FontWeight.SemiBold),
+    Font(R.font.saira_bold, FontWeight.Bold),
+)
+
+// Saira Semi Condensed for numbers with the Saira face: the same letterforms, narrow enough for three across.
+private val SairaNumeric = FontFamily(
+    Font(R.font.saira_sc_light, FontWeight.Light),
+    Font(R.font.saira_sc_regular, FontWeight.Normal),
+    Font(R.font.saira_sc_medium, FontWeight.Medium),
+    Font(R.font.saira_sc_semibold, FontWeight.SemiBold),
+    Font(R.font.saira_sc_semibold, FontWeight.Bold),
+)
+
+/** Saira, whatever face is chosen elsewhere: the Drive tab's instrument lettering. */
+val Instrument: FontFamily get() = Saira
+
 // Barlow: modelled on DIN road-sign and instrument lettering.
 private val Barlow = FontFamily(
     Font(R.font.barlow_regular, FontWeight.Normal),
@@ -102,9 +126,12 @@ private val Titillium = FontFamily(
 
 /** The typeface in use, also observable. */
 object Fonts {
-    var face by mutableStateOf(Face.Barlow)
-    val sans: FontFamily get() = if (face == Face.Barlow) Barlow else Titillium
-    val numeric: FontFamily get() = if (face == Face.Barlow) BarlowNumeric else Titillium
+    var face by mutableStateOf(Face.Saira)
+    val sans: FontFamily get() = when (face) { Face.Saira -> Saira; Face.Barlow -> Barlow; Face.Titillium -> Titillium }
+    val numeric: FontFamily get() = when (face) { Face.Saira -> SairaNumeric; Face.Barlow -> BarlowNumeric; Face.Titillium -> Titillium }
+
+    /** Saira is broad and open, so it reads best a step lighter and a touch smaller than the others. */
+    val light: Boolean get() = face == Face.Saira
 }
 
 val Sans: FontFamily get() = Fonts.sans
@@ -120,9 +147,10 @@ val Mono = FontFamily.Monospace
  * Null (no reading, or standing still) gives the normal text colour.
  */
 fun economyColor(kmPerL: Double?, fuelCut: Boolean = false, dark: Boolean = Palette.isDark): androidx.compose.ui.graphics.Color {
-    val red = if (dark) androidx.compose.ui.graphics.Color(0xFFFF5C5C) else androidx.compose.ui.graphics.Color(0xFFD12F2F)
-    val amber = if (dark) androidx.compose.ui.graphics.Color(0xFFFFC24D) else androidx.compose.ui.graphics.Color(0xFFC07E00)
-    val green = if (dark) androidx.compose.ui.graphics.Color(0xFF4CD787) else androidx.compose.ui.graphics.Color(0xFF1C9A4C)
+    // Muted on the dark theme, so the colour informs without shouting.
+    val red = if (dark) androidx.compose.ui.graphics.Color(0xFFE0716A) else androidx.compose.ui.graphics.Color(0xFFD12F2F)
+    val amber = if (dark) androidx.compose.ui.graphics.Color(0xFFE7B65C) else androidx.compose.ui.graphics.Color(0xFFC07E00)
+    val green = if (dark) androidx.compose.ui.graphics.Color(0xFF62C88A) else androidx.compose.ui.graphics.Color(0xFF1C9A4C)
     if (fuelCut) return green
     val k = kmPerL ?: return Palette.Value
     val f = ((k - 8.0) / 10.0).coerceIn(0.0, 1.0).toFloat() // 8 -> 0, 13 -> 0.5, 18 -> 1

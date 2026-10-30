@@ -221,10 +221,11 @@ class CoreTest {
     @Test
     fun economyColourRunsRedToGreen() {
         val c = { k: Double -> com.abeernch.civicobd.ui.economyColor(k, dark = true) }
-        assertEquals(androidx.compose.ui.graphics.Color(0xFFFF5C5C), c(5.0))   // poor: red
-        assertEquals(androidx.compose.ui.graphics.Color(0xFFFFC24D), c(13.0))  // middle: amber
-        assertEquals(androidx.compose.ui.graphics.Color(0xFF4CD787), c(22.0))  // good: green
-        assertEquals(androidx.compose.ui.graphics.Color(0xFF4CD787), com.abeernch.civicobd.ui.economyColor(null, fuelCut = true, dark = true))
+        // The muted shades of the redesigned Drive tab.
+        assertEquals(androidx.compose.ui.graphics.Color(0xFFE0716A), c(5.0))   // poor: red
+        assertEquals(androidx.compose.ui.graphics.Color(0xFFE7B65C), c(13.0))  // middle: amber
+        assertEquals(androidx.compose.ui.graphics.Color(0xFF62C88A), c(22.0))  // good: green
+        assertEquals(androidx.compose.ui.graphics.Color(0xFF62C88A), com.abeernch.civicobd.ui.economyColor(null, fuelCut = true, dark = true))
     }
 
     @Test
@@ -308,5 +309,50 @@ class CoreTest {
         }
         override fun connect() {}
         override fun close() {}
+    }
+
+    @Test
+    fun routeOrdinalsReadNaturally() {
+        val r = com.abeernch.civicobd.core.RouteContexts
+        assertEquals("1st", r.ordinal(1))
+        assertEquals("2nd", r.ordinal(2))
+        assertEquals("3rd", r.ordinal(3))
+        assertEquals("4th", r.ordinal(4))
+        assertEquals("11th", r.ordinal(11))
+        assertEquals("12th", r.ordinal(12))
+        assertEquals("13th", r.ordinal(13))
+        assertEquals("14th", r.ordinal(14))
+        assertEquals("21st", r.ordinal(21))
+        assertEquals("102nd", r.ordinal(102))
+        assertEquals("111th", r.ordinal(111))
+    }
+
+    @Test
+    fun economyComparisonPrefersTheRoute() {
+        val r = com.abeernch.civicobd.core.RouteContexts
+        // Against the route's usual figure when there is one.
+        val better = r.comparison(12.6, 11.8, 10.0)!!
+        assertEquals("6% better than your usual 11.8 on this route", better.first)
+        assertEquals(true, better.second)
+        // Otherwise against the 30-day average.
+        val worse = r.comparison(9.0, null, 10.0)!!
+        assertEquals("10% below your 30-day average of 10.0", worse.first)
+        assertEquals(false, worse.second)
+        // Within 2 % is level.
+        val level = r.comparison(10.1, 10.0, null)!!
+        assertEquals("Level with your usual 10.0 on this route", level.first)
+        assertEquals(null, level.second)
+        // Nothing to compare with, or no economy for this drive.
+        assertEquals(null, r.comparison(12.0, null, null))
+        assertEquals(null, r.comparison(null, 11.0, 10.0))
+    }
+
+    @Test
+    fun driveClockFormats() {
+        assertEquals("0:00", com.abeernch.civicobd.ui.clockTime(0.0))
+        assertEquals("24:18", com.abeernch.civicobd.ui.clockTime(24 * 60 + 18.4))
+        assertEquals("59:59", com.abeernch.civicobd.ui.clockTime(3599.0))
+        assertEquals("1:05:32", com.abeernch.civicobd.ui.clockTime(3600 + 5 * 60 + 32.0))
+        assertEquals("0:00", com.abeernch.civicobd.ui.clockTime(-5.0))
     }
 }

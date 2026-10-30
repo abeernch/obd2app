@@ -1,24 +1,32 @@
 package com.abeernch.civicobd.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -29,36 +37,59 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.abeernch.civicobd.R
 import com.abeernch.civicobd.core.AppSettings
 import com.abeernch.civicobd.core.ColorScale
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveBus
 import com.abeernch.civicobd.core.LiveState
+import com.abeernch.civicobd.core.RouteContext
+import com.abeernch.civicobd.core.RouteContexts
 import com.abeernch.civicobd.core.Summary
+import com.abeernch.civicobd.core.Tank
+import com.abeernch.civicobd.core.TripSummary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
-/** The main reading: km/L while moving, L/h while standing, "fuel cut" while coasting in gear. */
+/** The main reading for the head-up display and the floating window. */
 data class HeroReading(val value: String, val unit: String, val fuelCut: Boolean, val kmPerL: Double? = null) {
     /** Red to green by economy; plain text colour when standing or with no reading. */
-    val color: androidx.compose.ui.graphics.Color get() = if (fuelCut || kmPerL != null) economyColor(kmPerL, fuelCut) else Palette.Value
+    val color: Color get() = if (fuelCut || kmPerL != null) economyColor(kmPerL, fuelCut) else Palette.Value
 }
 
 fun heroReading(live: LiveState): HeroReading {
@@ -72,52 +103,692 @@ fun heroReading(live: LiveState): HeroReading {
     }
 }
 
+/** A drive that has just ended, for the goodbye on the Drive tab. */
+data class CompletedDrive(val summary: TripSummary, val route: RouteContext?, val played: Boolean = false)
+
+private const val CONTINUE_MS = 10 * 60_000L
+private val SoftEase = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
+private val WipeEase = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+
 /**
- * The screen to glance at while driving, in two views: gauges, and a live map with the
- * key numbers kept underneath. A switch at the top and a sideways swipe move between them,
- * and the last one used opens next time. Both views also lay out for a landscape mount.
+ * The screen to glance at while driving. Driving or waiting: the cluster, or a live map with the key
+ * figures, under one switch (a sideways swipe also moves between them). Stopped mid-drive: PARKED with the
+ * countdown to the drive's end. Just ended: a quiet goodbye with the drive's figures.
+ * Every view also lays out for a landscape mount.
  */
 @Composable
 fun DriveScreen(
     live: LiveState,
     today: Summary,
-    tank: com.abeernch.civicobd.core.Tank? = null,
+    tank: Tank? = null,
     settings: AppSettings,
     locationOk: Boolean = true,
     onHud: () -> Unit = {},
-    lastTrip: com.abeernch.civicobd.core.TripSummary? = null,
+    completed: CompletedDrive? = null,
+    onGoodbyePlayed: () -> Unit = {},
+    onViewDrive: (Long) -> Unit = {},
+    wakeAtMs: Long = 0L,
+    onLocation: () -> Unit = {},
+) {
+    val paused = live.trip.active && live.tripPaused
+    // The page's soft dark gradient is painted by the app shell, behind the title bar too.
+    Box(Modifier.fillMaxSize()) {
+        when {
+            paused -> FadeIn("parked") { ParkedView(live, today, locationOk, onHud, onLocation) }
+            !live.trip.active && completed != null -> Goodbye(completed, today, onGoodbyePlayed, onViewDrive)
+            else -> FadeIn("instruments") { Instruments(live, tank, settings, locationOk, onHud, wakeAtMs, onLocation) }
+        }
+    }
+}
+
+/** Fades its content in once when it first appears. */
+@Composable
+private fun FadeIn(key: String, content: @Composable () -> Unit) {
+    val a = remember(key) { Animatable(0f) }
+    LaunchedEffect(key) { a.animateTo(1f, tween(450)) }
+    Box(Modifier.fillMaxSize().graphicsLayer { alpha = a.value }) { content() }
+}
+
+// ---------------------------------------------------------------- driving: the cluster and the map
+
+@Composable
+private fun Instruments(
+    live: LiveState,
+    tank: Tank?,
+    settings: AppSettings,
+    locationOk: Boolean,
+    onHud: () -> Unit,
+    wakeAtMs: Long,
+    onLocation: () -> Unit,
 ) {
     val pager = rememberPagerState(initialPage = settings.driveView.coerceIn(0, 1)) { 2 }
     val scope = rememberCoroutineScope()
     LaunchedEffect(pager.settledPage) { settings.driveView = pager.settledPage }
-    fun go(page: Int) = scope.launch {
-        pager.animateScrollToPage(page, animationSpec = spring(dampingRatio = 0.9f, stiffness = 400f))
+    fun go(page: Int) = scope.launch { pager.animateScrollToPage(page, animationSpec = spring(dampingRatio = 0.9f, stiffness = 400f)) }
+
+    // The start-up sweep, if one is due: driven by the frame clock until it is over.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(wakeAtMs) {
+        if (wakeAtMs <= 0L) return@LaunchedEffect
+        now = System.currentTimeMillis()
+        val lead = wakeAtMs - now
+        if (lead > 0) delay(lead) // until then the cluster rests in its pre-sweep look
+        while (System.currentTimeMillis() < wakeAtMs + 1_700) withFrameNanos { now = System.currentTimeMillis() }
+        now = System.currentTimeMillis()
+    }
+    val wake = if (wakeAtMs > 0L && now < wakeAtMs + 1_700) (now - wakeAtMs) / 1000f else null
+    val state = clusterState(live, tank, settings)
+    val position = pager.currentPage + pager.currentPageOffsetFraction
+    val switch: @Composable (Modifier) -> Unit = { m ->
+        ViewSwitch(listOf("GAUGES", "MAP"), listOf(LuxIcon.Gauges, LuxIcon.Map), position, m) { go(it) }
+    }
+    val tiles: @Composable (Modifier) -> Unit = { m ->
+        ControlTiles(live, locationOk, onHud, onLocation, onGpsOn = { go(1) }, modifier = m)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SegmentSwitch(listOf("Gauges", "Map"), pager.currentPage + pager.currentPageOffsetFraction) { go(it) }
-            Spacer(Modifier.weight(1f))
-            Text(
-                "HUD", style = Type.label.copy(color = Palette.Accent, fontSize = Type.sz(16f)),
-                modifier = Modifier.pressable(onClick = onHud).padding(horizontal = 10.dp, vertical = 10.dp),
-            )
-        }
-        HorizontalPager(
-            state = pager,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            // On the map, sideways drags pan the map; the switch, or a swipe on the numbers, comes back.
-            userScrollEnabled = pager.settledPage == 0,
-            beyondViewportPageCount = 1,
-        ) { page ->
-            if (page == 0) Gauges(live, today, tank, settings, lastTrip)
-            else DriveMap(live, settings, locationOk, onSwipeBack = { go(0) })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth <= maxHeight) {
+            Column(Modifier.fillMaxSize()) {
+                switch(Modifier.padding(horizontal = 20.dp).padding(top = 2.dp))
+                HorizontalPager(
+                    state = pager,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    // On the map, sideways drags pan the map; the switch brings the gauges back.
+                    userScrollEnabled = pager.settledPage == 0,
+                    beyondViewportPageCount = 1,
+                ) { page ->
+                    if (page == 0) {
+                        Column(Modifier.fillMaxSize()) {
+                            DriveCluster(state, Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp), wake)
+                            InfoStrip(live, Modifier.padding(horizontal = 20.dp))
+                            Spacer(Modifier.height(22.dp))
+                        }
+                    } else {
+                        MapPane(live, settings, locationOk, overlay = true, Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 18.dp))
+                    }
+                }
+                tiles(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
+            }
+        } else {
+            // Landscape: the cluster or the map on the left, the switch, figures and controls on the right.
+            Row(Modifier.fillMaxSize()) {
+                HorizontalPager(
+                    state = pager,
+                    modifier = Modifier.weight(1.15f).fillMaxHeight(),
+                    userScrollEnabled = pager.settledPage == 0,
+                    beyondViewportPageCount = 1,
+                ) { page ->
+                    if (page == 0) DriveCluster(state, Modifier.fillMaxSize().padding(vertical = 6.dp), wake)
+                    else MapPane(live, settings, locationOk, overlay = false, Modifier.fillMaxSize().padding(12.dp))
+                }
+                Column(Modifier.weight(1f).fillMaxHeight().padding(end = 20.dp, top = 10.dp, bottom = 12.dp)) {
+                    switch(Modifier)
+                    Spacer(Modifier.weight(1f))
+                    if (pager.settledPage == 0) InfoStrip(live) else MapFigures(live, Modifier.fillMaxWidth())
+                    Spacer(Modifier.weight(1f))
+                    tiles(Modifier)
+                }
+            }
         }
     }
 }
+
+/** The cluster's figures from the live readings. */
+private fun clusterState(live: LiveState, tank: Tank?, settings: AppSettings): ClusterState {
+    val d = live.derived
+    val connected = live.link == Link.Live
+    val running = connected && (live.values[0x0C] ?: 0.0) > 0
+    val fraction = tank?.leftL?.let { (it / settings.tankL).coerceIn(0.0, 1.0) }
+    return ClusterState(
+        speed = if (connected) live.values[0x0D] ?: 0.0 else 0.0,
+        live = running,
+        instant = if (running && !d.fuelCut) d.instantKmL else null,
+        fuelCut = running && d.fuelCut,
+        average = if (live.trip.active) live.trip.kmPerL else null,
+        gear = if (running) d.gear else 0,
+        shift = when {
+            !running -> null
+            d.lugging -> Shift.Down
+            d.shiftUp -> Shift.Up
+            else -> null
+        },
+        fuelFraction = fraction,
+        rangeKm = tank?.rangeKm,
+        label = centreLabel(live),
+    )
+}
+
+private fun centreLabel(live: LiveState): String {
+    val d = live.derived
+    val running = live.link == Link.Live && (live.values[0x0C] ?: 0.0) > 0
+    return when {
+        running && d.fuelCut -> "FUEL CUT"
+        running && d.instantKmL != null -> "km/L NOW"
+        running -> "IDLE"
+        live.link == Link.EngineOff -> "ENGINE OFF"
+        live.link == Link.Searching || live.link == Link.Connecting -> "SEARCHING"
+        else -> "NOT CONNECTED"
+    }
+}
+
+/** Seconds as 24:18, or 1:05:32 past an hour. */
+fun clockTime(seconds: Double): String {
+    val s = seconds.coerceAtLeast(0.0).toLong()
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}
+
+@Composable
+private fun InfoStrip(live: LiveState, modifier: Modifier = Modifier) {
+    val t = live.trip
+    Readouts(
+        listOf(
+            Readout("TRIP", fmt(if (t.active) t.distanceKm else 0.0, 1), "km"),
+            Readout("TIME", clockTime(if (t.active) t.driveS + t.idleS else 0.0)),
+            Readout("TRIP AVG", if (t.active) t.kmPerL?.let { fmt(it) } ?: "–" else "–", "km/L", Lux.GoldSoft),
+        ),
+        modifier,
+    )
+}
+
+/** HUD, Bluetooth and GPS: what each is doing, and a tap to act on it. */
+@Composable
+private fun ControlTiles(
+    live: LiveState,
+    locationOk: Boolean,
+    onHud: () -> Unit,
+    onLocation: () -> Unit,
+    onGpsOn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val (bt, btLed) = when (live.link) {
+        Link.Live, Link.EngineOff -> "Connected" to Led.On
+        Link.Searching, Link.Connecting -> "Searching" to Led.Blink
+        Link.BluetoothOff -> "Off" to Led.Off
+        Link.NoAdapter -> "No adapter" to Led.Off
+        Link.Idle -> "Not connected" to Led.Off
+    }
+    val (gps, gpsLed) = when {
+        live.locationOff -> "Off" to Led.Off
+        !locationOk -> "No access" to Led.Off
+        live.trip.active && !live.tripPaused && live.position == null -> "Searching" to Led.Blink
+        else -> "On" to Led.On
+    }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SlantTile(LuxIcon.Hud, "HUD", "Open", Led.Off, Modifier.weight(1f), description = "Open the head-up display", onClick = onHud)
+        SlantTile(LuxIcon.Bluetooth, "BLUETOOTH", bt, btLed, Modifier.weight(1f)) {
+            com.abeernch.civicobd.service.ObdService.wake(context)
+        }
+        SlantTile(LuxIcon.Gps, "GPS", gps, gpsLed, Modifier.weight(1f)) {
+            if (live.locationOff || !locationOk) onLocation() else onGpsOn()
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the live map
+
+@Composable
+private fun MapPane(live: LiveState, settings: AppSettings, locationOk: Boolean, overlay: Boolean, modifier: Modifier) {
+    val trail by LiveBus.trail.collectAsState()
+    var follow by remember { mutableStateOf(true) }
+    var touchedAt by remember { mutableLongStateOf(0L) }
+    // After the map is panned or zoomed by hand, it returns to the car 8 s after the last touch.
+    LaunchedEffect(touchedAt) {
+        if (touchedAt > 0) {
+            delay(8_000)
+            follow = true
+        }
+    }
+    val scale = ColorScale.entries.firstOrNull { it.name == settings.routeScale } ?: ColorScale.Parula
+    val tiles = MapTiles.entries.firstOrNull { it.name == settings.mapTiles } ?: MapTiles.Esri
+    val shape = RoundedCornerShape(20.dp)
+    Box(modifier.clip(shape).border(1.dp, Lux.Line, shape)) {
+        LiveMap(
+            trail = trail,
+            position = live.position,
+            speedKmh = live.values[0x0D],
+            scale = scale,
+            tileKind = tiles,
+            follow = follow,
+            onTouched = { follow = false; touchedAt = System.currentTimeMillis() },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (overlay) MapFigures(live, Modifier.align(Alignment.TopCenter).padding(10.dp).fillMaxWidth())
+        val message = when {
+            live.locationOff -> "Location is off. Tap GPS below to turn it on"
+            !locationOk -> "Allow location to see the map"
+            live.position == null && live.trip.active -> "Waiting for GPS"
+            live.position == null -> "The map follows the car once a drive starts"
+            else -> null
+        }
+        message?.let { MapNote(it, Modifier.align(if (overlay) Alignment.Center else Alignment.TopCenter)) }
+        MapButton(LuxIcon.Gps, "Re-centre on the car", Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 22.dp)) {
+            follow = true
+            touchedAt = 0L
+        }
+        TripChip(live, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 26.dp))
+        Text(
+            tiles.credit,
+            style = lux(8.5.sp, FontWeight.Normal, Lux.Dim),
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun MapNote(text: String, modifier: Modifier) {
+    Text(
+        text,
+        style = lux(12.5.sp, FontWeight.Light, Lux.Txt).copy(textAlign = TextAlign.Center),
+        modifier = modifier
+            .padding(horizontal = 24.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF050608).copy(alpha = 0.85f))
+            .border(1.dp, Lux.Line, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun TripChip(live: LiveState, modifier: Modifier) {
+    val t = live.trip
+    if (!t.active) return
+    Text(
+        "${fmt(t.distanceKm, 1)} km · ${clockTime(t.driveS + t.idleS)}",
+        style = lux(12.sp, FontWeight.Light, Color(0xFFB5BBC5)),
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF050608).copy(alpha = 0.8f))
+            .border(1.dp, Lux.Line, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+/** Speed, instant economy against the trip average, and the gear, in one dark card. */
+@Composable
+private fun MapFigures(live: LiveState, modifier: Modifier) {
+    val d = live.derived
+    val connected = live.link == Link.Live
+    val running = connected && (live.values[0x0C] ?: 0.0) > 0
+    val speed = if (connected) (live.values[0x0D] ?: 0.0).roundToInt() else 0
+    val instant = if (running && !d.fuelCut) d.instantKmL else null
+    val avg = if (live.trip.active) live.trip.kmPerL else null
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier
+            .clip(shape)
+            .background(Color(0xFF050608).copy(alpha = 0.82f))
+            .border(1.dp, Lux.Line, shape)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("$speed", style = lux(46.sp, FontWeight.ExtraLight, if (running) Lux.Txt else Lux.Faint).copy(lineHeight = 46.sp), maxLines = 1)
+            Text("km/h", style = lux(9.5.sp, FontWeight.Normal, Lux.Dim, 2.6.sp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Lux.Line))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                Text(
+                    when {
+                        running && d.fuelCut -> "cut"
+                        instant != null -> fmt(instant)
+                        else -> "–"
+                    },
+                    style = lux(24.sp, FontWeight.Normal, if (running && d.fuelCut) Lux.Cut else Lux.eco(instant)).copy(lineHeight = 26.sp),
+                )
+                Text(if (avg != null) "avg ${fmt(avg)}" else "", style = lux(12.sp, FontWeight.Normal, Lux.GoldSoft, 0.5.sp))
+            }
+            MiniBar(if (running && d.fuelCut) 30.0 else instant, avg, Modifier.padding(top = 8.dp).fillMaxWidth().height(14.dp))
+            Text(centreLabel(live), style = lux(9.5.sp, FontWeight.Normal, Lux.Dim, 2.2.sp), modifier = Modifier.padding(top = 3.dp), maxLines = 1)
+        }
+        Spacer(Modifier.width(14.dp))
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Lux.Line))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.width(44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            val gear = when {
+                !running -> "N"
+                d.gear == 0 -> "N"
+                else -> d.gear.toString()
+            }
+            Text(gear, style = lux(24.sp, FontWeight.Medium, if (Palette.isDark) Color.White else Palette.Value).copy(shadow = Shadow(Color.White.copy(alpha = 0.35f), Offset.Zero, 28f)))
+            val (label, col) = when {
+                running && d.lugging -> "DOWN" to Lux.Amber
+                running && d.shiftUp -> "SHIFT" to Lux.Gold
+                else -> "GEAR" to Lux.Dim
+            }
+            Text(label, style = lux(8.5.sp, FontWeight.Normal, col, 2.2.sp), modifier = Modifier.padding(top = 5.dp), maxLines = 1)
+        }
+    }
+}
+
+/** A thin bar from 0 to 30 km/L: the instant value as a coloured fill with a white knob, the trip average as an accent tick. */
+@Composable
+private fun MiniBar(instant: Double?, average: Double?, modifier: Modifier) {
+    val fill by animateFloatAsState(((instant ?: 0.0) / 30.0).coerceIn(0.0, 1.0).toFloat(), Motion.settle(), label = "fill")
+    val mark by animateFloatAsState(((average ?: 0.0) / 30.0).coerceIn(0.0, 1.0).toFloat(), Motion.glide(), label = "mark")
+    val red = Lux.Red
+    val amber = Lux.Amber
+    val green = Lux.Green
+    val accent = Lux.Gold
+    Canvas(modifier) {
+        val u = 1.dp.toPx()
+        val y = size.height / 2
+        drawRoundRect(Color(0xFF1C2027), Offset(0f, y - u), Size(size.width, 2 * u), CornerRadius(u, u))
+        if (fill > 0.005f) {
+            drawRoundRect(
+                Brush.horizontalGradient(0f to red, 0.45f to amber, 1f to green, startX = 0f, endX = size.width),
+                Offset(0f, y - 1.5f * u), Size(size.width * fill, 3 * u), CornerRadius(2 * u, 2 * u),
+            )
+        }
+        if (instant != null) drawCircle(Color(0xFFF4F5F7), 4 * u, Offset(size.width * fill, y))
+        if (average != null) drawLine(accent, Offset(size.width * mark, 0f), Offset(size.width * mark, size.height), 2 * u, StrokeCap.Round)
+    }
+}
+
+// ---------------------------------------------------------------- parked
+
+@Composable
+private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onHud: () -> Unit, onLocation: () -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000 - now % 1_000)
+        }
+    }
+    val until = if (live.pausedUntilMs > 0) live.pausedUntilMs else now + CONTINUE_MS
+    val left = (until - now).coerceIn(0L, CONTINUE_MS)
+    val fraction = left / CONTINUE_MS.toFloat()
+    val time = "%d:%02d".format(left / 60_000, left / 1_000 % 60)
+    val t = live.trip
+    val kml = t.kmPerL
+    val figures: @Composable (Modifier) -> Unit = { m ->
+        Readouts(
+            listOf(
+                Readout("SO FAR", fmt(t.distanceKm, 1), "km"),
+                Readout("TIME", clockTime(t.driveS + t.idleS)),
+                Readout("KM/L", kml?.let { fmt(it) } ?: "–", "", Lux.eco(kml)),
+                Readout("COST", "Rs " + "%,d".format((t.fuelL * live.fuelPrice).roundToInt())),
+            ),
+            m, size = 22.sp,
+        )
+    }
+    val word: @Composable () -> Unit = {
+        Text("PARKED", style = lux(28.sp, FontWeight.ExtraLight, Lux.Txt, 8.sp), modifier = Modifier.padding(start = 8.dp))
+    }
+    val end: @Composable (Modifier) -> Unit = { m -> SlantWide("END DRIVE NOW", m) { LiveBus.requestEndDrive() } }
+    val tiles: @Composable (Modifier) -> Unit = { m -> ControlTiles(live, locationOk, onHud, onLocation, onGpsOn = {}, modifier = m) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth <= maxHeight) {
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.weight(1f))
+                word()
+                Spacer(Modifier.height(24.dp))
+                CountdownRing(fraction, time, Modifier.size(184.dp), 46.sp)
+                Spacer(Modifier.weight(1f))
+                figures(Modifier.padding(horizontal = 20.dp))
+                TodayLine(today, Modifier.padding(top = 14.dp, start = 20.dp, end = 20.dp))
+                Spacer(Modifier.weight(0.8f))
+                end(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
+                tiles(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
+            }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    word()
+                    Spacer(Modifier.height(14.dp))
+                    CountdownRing(fraction, time, Modifier.size(150.dp), 38.sp)
+                }
+                Column(Modifier.weight(1.2f).fillMaxHeight().padding(end = 20.dp, top = 12.dp, bottom = 12.dp)) {
+                    figures(Modifier)
+                    TodayLine(today, Modifier.padding(top = 12.dp))
+                    Spacer(Modifier.weight(1f))
+                    end(Modifier.padding(bottom = 12.dp))
+                    tiles(Modifier)
+                }
+            }
+        }
+    }
+}
+
+/** The time left to carry on this drive, as a ring that empties. */
+@Composable
+private fun CountdownRing(fraction: Float, time: String, modifier: Modifier, textSize: androidx.compose.ui.unit.TextUnit) {
+    val f by animateFloatAsState(fraction, tween(1_000, easing = LinearEasing), label = "countdown")
+    val accent = Lux.Gold
+    val line = Lux.Line
+    Box(modifier.semantics { contentDescription = "Parked: $time left to continue this drive" }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val u = size.width / 184f
+            val r = 80f * u
+            val tl = Offset(center.x - r, center.y - r)
+            val sz = Size(2 * r, 2 * r)
+            drawCircle(line, r, style = Stroke(1.5f * u))
+            if (f > 0.002f) {
+                drawArc(accent.copy(alpha = 0.16f), -90f, 360f * f, false, tl, sz, style = Stroke(7f * u, cap = StrokeCap.Round))
+                drawArc(accent, -90f, 360f * f, false, tl, sz, style = Stroke(2.4f * u, cap = StrokeCap.Round))
+            }
+        }
+        Text(time, style = lux(textSize, FontWeight.ExtraLight, Lux.Txt))
+    }
+}
+
+/** "Today · 2 drives · 41.2 km · 12.9 km/L", the economy in the accent. */
+@Composable
+private fun TodayLine(today: Summary, modifier: Modifier = Modifier) {
+    val soft = Lux.GoldSoft
+    val text = buildAnnotatedString {
+        append("Today · ${today.trips} drive${if (today.trips == 1) "" else "s"} · ${fmt(today.distanceKm, 1)} km")
+        today.kmPerL?.let { k ->
+            append(" · ")
+            withStyle(SpanStyle(color = soft)) { append("${fmt(k)} km/L") }
+        }
+    }
+    Text(text, style = lux(12.5.sp, FontWeight.Light, Lux.Sub, 0.3.sp).copy(textAlign = TextAlign.Center), modifier = modifier.fillMaxWidth())
+}
+
+// ---------------------------------------------------------------- the goodbye
+
+@Composable
+private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onViewDrive: (Long) -> Unit) {
+    val trip = c.summary.trip
+    // Decided once: the clip plays the first time this goodbye is seen; after that the car rests dark.
+    val playing = remember(trip.id) { !c.played }
+    var t by remember(trip.id) { mutableFloatStateOf(if (playing) 0f else 99f) }
+    LaunchedEffect(trip.id) {
+        if (!playing) return@LaunchedEffect
+        onPlayed()
+        val start = withFrameNanos { it }
+        while (t < 7f) withFrameNanos { n -> t = (n - start) / 1e9f }
+    }
+    val k = c.summary.kmPerL
+    val comparison = RouteContexts.comparison(k, c.route?.usualKmL, c.summary.averageKmL)
+    val ended = SimpleDateFormat("EEE d MMM, HH:mm", Locale.US).format(Date(trip.endMs))
+    val sub = (c.route?.let { "${it.name} · " } ?: "") + ended
+    val hours = (trip.driveS + trip.idleS) / 3600.0
+    val rate = if (hours > 0.01) trip.fuelL / hours else null
+
+    val car: @Composable (Modifier) -> Unit = { m ->
+        Box(m.fillMaxWidth().aspectRatio(2f)) {
+            if (playing && t < 6.5f) ClipPlayer(R.raw.civic_end, Modifier.fillMaxSize(), alpha = span(t, 0.15f, 0.8f))
+            else ClipStill(Modifier.fillMaxSize())
+        }
+    }
+    val title: @Composable () -> Unit = {
+        RevealTitle(
+            "Drive complete",
+            reveal = span(t, 2.6f, 4.3f, WipeEase),
+            sheen = if (playing) span(t, 3.1f, 5.4f, LinearEasing) else 1f,
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+        )
+        val h = span(t, 4.0f, 5.0f, SoftEase)
+        Box(
+            Modifier
+                .width(200.dp)
+                .height(1.dp)
+                .graphicsLayer { scaleX = h; alpha = h }
+                .background(Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0f), Color.White.copy(alpha = if (Palette.isDark) 0.5f else 0.3f), Color.White.copy(alpha = 0f))))
+        )
+        Text(
+            sub,
+            style = lux(13.5.sp, FontWeight.Light, if (Palette.isDark) Color(0xFFA9AFB9) else Palette.Label, 1.sp).copy(textAlign = TextAlign.Center),
+            modifier = Modifier.padding(top = 12.dp, start = 20.dp, end = 20.dp).fillMaxWidth().graphicsLayer { alpha = span(t, 4.5f, 5.2f) },
+        )
+    }
+    val panelIn = span(t, 5.1f, 6.1f, SoftEase)
+    val panel: @Composable (Modifier) -> Unit = { m ->
+        Column(m.graphicsLayer { alpha = panelIn; translationY = (1f - panelIn) * 10.dp.toPx() }) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text("ECONOMY", style = lux(9.5.sp, FontWeight.Normal, Lux.Dim, 2.2.sp))
+                    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 2.dp)) {
+                        Text(k?.let { fmt(it) } ?: "–", style = lux(48.sp, FontWeight.ExtraLight, Lux.eco(k)).copy(lineHeight = 50.sp))
+                        Text(" km/L", style = lux(13.sp, FontWeight.Normal, Lux.Dim), modifier = Modifier.padding(bottom = 8.dp))
+                    }
+                }
+                comparison?.let { (text, good) ->
+                    Text(
+                        text,
+                        style = lux(12.5.sp, FontWeight.Light, if (good == true) Lux.Green else if (good == false) Lux.Amber else Lux.Sub)
+                            .copy(textAlign = TextAlign.End, lineHeight = 17.sp),
+                        modifier = Modifier.widthIn(max = 160.dp).padding(bottom = 6.dp),
+                    )
+                }
+            }
+            Readouts(
+                listOf(
+                    Readout("DISTANCE", fmt(trip.distanceKm, 1), "km"),
+                    Readout("TIME", clockTime(trip.driveS + trip.idleS)),
+                    Readout("FUEL", fmt(trip.fuelL, 2), "L"),
+                    Readout("COST", "Rs " + "%,d".format(trip.cost.roundToInt())),
+                ),
+                size = 21.sp,
+            )
+            Text(
+                listOfNotNull(rate?.let { "Average fuel rate ${fmt(it)} L/h" }, "top speed ${trip.maxSpeed.roundToInt()} km/h")
+                    .joinToString(" · ").replaceFirstChar { it.uppercase() },
+                style = lux(12.sp, FontWeight.Light, Lux.Sub).copy(textAlign = TextAlign.Center),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+        }
+    }
+    val lastIn = span(t, 5.8f, 6.5f)
+    val view: @Composable (Modifier) -> Unit = { m ->
+        SlantWide("VIEW DRIVE", m.graphicsLayer { alpha = lastIn }, trailing = LuxIcon.Chevron) { onViewDrive(trip.id) }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        CloudBackdrop(span(t, 0.4f, 3.6f, LinearEasing), Modifier.fillMaxWidth().height(440.dp))
+        if (maxWidth <= maxHeight) {
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.weight(0.35f))
+                car(Modifier)
+                Spacer(Modifier.height(4.dp))
+                title()
+                panel(Modifier.padding(horizontal = 20.dp).padding(top = 18.dp))
+                TodayLine(today, Modifier.padding(top = 14.dp, start = 20.dp, end = 20.dp).graphicsLayer { alpha = lastIn })
+                Spacer(Modifier.weight(1f))
+                view(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
+            }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    car(Modifier.padding(horizontal = 12.dp))
+                    title()
+                }
+                Column(Modifier.weight(1.1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 20.dp, top = 8.dp, bottom = 12.dp)) {
+                    panel(Modifier)
+                    TodayLine(today, Modifier.padding(top = 12.dp).graphicsLayer { alpha = lastIn })
+                    Spacer(Modifier.height(16.dp))
+                    view(Modifier)
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the start: the car's lights come up, a greeting, then the cluster wakes
+
+/**
+ * Full-screen welcome, played when the app is opened for a drive: the car clip, a greeting, then a fade
+ * into the Drive tab, where the cluster sweeps awake. A tap skips to the end.
+ * [onWakeAt] gives the time the cluster's sweep should start; [onReveal] lets the app appear underneath.
+ */
+@Composable
+fun DriveIntro(onReveal: () -> Unit, onWakeAt: (Long) -> Unit, onDone: () -> Unit) {
+    var t by remember { mutableFloatStateOf(0f) }
+    var skipBy by remember { mutableFloatStateOf(0f) }
+    val greeting = remember {
+        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            else -> "Good evening"
+        }
+    }
+    LaunchedEffect(Unit) {
+        onWakeAt(System.currentTimeMillis() + 7_600)
+        val start = withFrameNanos { it }
+        var revealed = false
+        while (t < 7.4f) {
+            withFrameNanos { n -> t = (n - start) / 1e9f + skipBy }
+            if (!revealed && t >= 6.2f) {
+                revealed = true
+                onReveal()
+            }
+        }
+        onDone()
+    }
+    val out = span(t, 6.6f, 7.4f)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = 1f - out }
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    if (t < 6.6f) {
+                        skipBy += 6.6f - t
+                        onWakeAt(System.currentTimeMillis() + 1_000)
+                    }
+                }
+            }
+            .semantics { contentDescription = "Welcome. Tap to skip" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f)
+                    .graphicsLayer {
+                        val k = 1f - 0.04f * out
+                        scaleX = k
+                        scaleY = k
+                    }
+            ) { ClipPlayer(R.raw.civic_start, Modifier.fillMaxSize()) }
+            Spacer(Modifier.height(30.dp))
+            val g = span(t, 4.4f, 5.4f, SoftEase)
+            Text(greeting, style = lux(28.sp, FontWeight.ExtraLight, Color(0xFFECEEF1), (10f - 6f * g).sp), modifier = Modifier.graphicsLayer { alpha = g })
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "READY TO DRIVE",
+                style = lux(10.5.sp, FontWeight.Normal, lerpSoft(), 4.sp),
+                modifier = Modifier.offset(x = 2.dp).graphicsLayer { alpha = span(t, 5.0f, 5.6f) },
+            )
+        }
+    }
+}
+
+/** The accent's soft tint, for use on black whatever the theme. */
+private fun lerpSoft(): Color = androidx.compose.ui.graphics.lerp(Palette.Accent, Color.White, 0.36f)
+
+// ---------------------------------------------------------------- kept for the Trips tab, HUD and floating window
 
 /** Two large segments with a soft accent fill that slides along with the swipe. */
 @Composable
@@ -162,388 +833,6 @@ fun SegmentSwitch(labels: List<String>, position: Float, onPick: (Int) -> Unit) 
     }
 }
 
-// ---- Gauges ----
-
-@Composable
-private fun Gauges(
-    live: LiveState,
-    today: Summary,
-    tank: com.abeernch.civicobd.core.Tank?,
-    settings: AppSettings,
-    lastTrip: com.abeernch.civicobd.core.TripSummary?,
-) {
-    // Parked: the last drive's summary instead of a screen of empty readings.
-    if ((!live.trip.active || live.tripPaused) && lastTrip != null) {
-        Parked(lastTrip, today, tank, settings, paused = live.trip.active && live.tripPaused)
-        return
-    }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        if (maxWidth > maxHeight) {
-            // Landscape: the big number on the left, the tiles scroll on the right.
-            Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    Hero(live, tank, settings, scale = 0.75f)
-                }
-                Spacer(Modifier.width(28.dp))
-                Column(Modifier.weight(1.25f).verticalScroll(rememberScrollState())) {
-                    Spacer(Modifier.height(6.dp))
-                    GaugeTiles(live, today, tank, settings)
-                }
-            }
-        } else {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            ) {
-                Hero(live, tank, settings)
-                Spacer(Modifier.height(28.dp))
-                GaugeTiles(live, today, tank, settings)
-            }
-        }
-    }
-}
-
-@Composable
-private fun Hero(live: LiveState, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings, scale: Float = 1f) {
-    val d = live.derived
-    val hero = heroReading(live)
-    Column {
-        Spacer(Modifier.height(6.dp))
-        ShiftCue(live.values[0x0C], d)
-        Spacer(Modifier.height(10.dp))
-        val heroTint by androidx.compose.animation.animateColorAsState(
-            hero.color, Motion.fade(400), label = "hero",
-        )
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f)) {
-                if (hero.value == "--") {
-                    // No reading: a short accent dash, sitting where the number will appear.
-                    val style = heroStyle(scale)
-                    Box(Modifier.height(with(androidx.compose.ui.platform.LocalDensity.current) { style.lineHeight.toDp() }), contentAlignment = Alignment.CenterStart) {
-                        Box(
-                            Modifier.width(44.dp).height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Palette.Accent.copy(alpha = 0.6f))
-                        )
-                    }
-                } else {
-                    RollingNumber(hero.value, heroStyle(scale).copy(color = heroTint))
-                }
-                Text(hero.unit, style = Type.label.copy(fontSize = Type.sz(18f)))
-            }
-            FuelIndicator(tank, settings)
-        }
-        Spacer(Modifier.height(16.dp))
-        EconomyBar(instant = d.instantKmL, average = live.trip.kmPerL)
-        Spacer(Modifier.height(12.dp))
-    }
-}
-
-@Composable
-private fun Parked(
-    last: com.abeernch.civicobd.core.TripSummary,
-    today: Summary,
-    tank: com.abeernch.civicobd.core.Tank?,
-    settings: AppSettings,
-    paused: Boolean,
-) {
-    // Paused: a stop within a drive. The drive carries on if the engine starts within 10 minutes.
-    val title = if (paused) "Paused" else "Parked"
-    val hint = if (paused) "The drive continues if you set off within 10 minutes" else "Starts recording when the engine runs"
-    val cardTitle = if (paused) "This drive so far" else "Last drive"
-    val endButton: @Composable () -> Unit = {
-        if (paused) {
-            Spacer(Modifier.height(14.dp))
-            OutlineButton("End drive now", color = Palette.Accent) { LiveBus.requestEndDrive() }
-        }
-    }
-    val todayBlock: @Composable () -> Unit = {
-        Section("Today") {
-            Row(Modifier.fillMaxWidth()) {
-                Tile("Distance", fmt(today.distanceKm, 1), "km", Modifier.weight(1f))
-                Tile("Economy", fmt(today.kmPerL), "km/L", Modifier.weight(1f))
-                Tile("Cost", "%,d".format(today.cost.toLong()), "Rs", Modifier.weight(1f))
-            }
-        }
-    }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        if (maxWidth > maxHeight) {
-            Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-                Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
-                    Text(title, style = Type.title)
-                    Text(hint, style = Type.label)
-                    Spacer(Modifier.height(10.dp))
-                    TripSummaryCard(last, title = cardTitle)
-                    endButton()
-                }
-                Spacer(Modifier.width(24.dp))
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    FuelIndicator(tank, settings)
-                    Spacer(Modifier.height(16.dp))
-                    todayBlock()
-                }
-            }
-        } else {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(title, style = Type.title)
-                        Text(hint, style = Type.label)
-                    }
-                    FuelIndicator(tank, settings)
-                }
-                TripSummaryCard(last, title = cardTitle)
-                endButton()
-                Spacer(Modifier.height(24.dp))
-                todayBlock()
-                Spacer(Modifier.height(24.dp))
-            }
-        }
-    }
-}
-
-private fun heroStyle(scale: Float) = Type.hero.let {
-    if (scale == 1f) it else it.copy(fontSize = it.fontSize * scale, lineHeight = it.lineHeight * scale)
-}
-
-@Composable
-private fun GaugeTiles(live: LiveState, today: Summary, tank: com.abeernch.civicobd.core.Tank?, settings: AppSettings) {
-    val d = live.derived
-    val speed = live.values[0x0D]
-    val rpm = live.values[0x0C]
-    val trip = live.trip
-    val running = live.link == Link.Live && (rpm ?: 0.0) > 0
-
-    Section("Fuel economy  km/L") {
-        Row(Modifier.fillMaxWidth()) {
-            Tile("10 s", fmt(d.avg10KmL), "", Modifier.weight(1f))
-            Tile("Trip", fmt(trip.kmPerL), "", Modifier.weight(1f))
-            Tile("Today", fmt(today.kmPerL), "", Modifier.weight(1f))
-        }
-    }
-    Spacer(Modifier.height(20.dp))
-
-    Section("This trip") {
-        Row(Modifier.fillMaxWidth()) {
-            Tile("Distance", fmt(trip.distanceKm, 2), "km", Modifier.weight(1f))
-            Tile("Fuel", fmt(trip.fuelL, 2), "L", Modifier.weight(1f))
-            Tile("Cost", fmt(trip.fuelL * live.fuelPrice, 0), "PKR", Modifier.weight(1f))
-        }
-        if (tank?.kmPerL != null) {
-            Row(Modifier.fillMaxWidth()) {
-                Tile("Since fill", fmt(tank.kmPerL), "km/L", Modifier.weight(1f))
-                Tile("Avg speed", fmt(trip.avgSpeed, 0), "km/h", Modifier.weight(1f))
-                Tile("Max speed", fmt(trip.maxSpeed, 0), "km/h", Modifier.weight(1f))
-            }
-        }
-    }
-    Spacer(Modifier.height(20.dp))
-
-    Section("Engine") {
-        Row(Modifier.fillMaxWidth()) {
-            val gearText = when {
-                !running -> "--"
-                d.gear == 0 -> "N"
-                else -> d.gear.toString()
-            }
-            Tile("Gear", gearText, "", Modifier.weight(1f))
-            Tile("Speed", fmt(speed, 0), "km/h", Modifier.weight(1f))
-            Tile("RPM", fmt(rpm, 0), "", Modifier.weight(1f))
-        }
-        Row(Modifier.fillMaxWidth()) {
-            val coolant = live.values[0x05]
-            Tile(
-                "Coolant", fmt(coolant, 0), "°C", Modifier.weight(1f),
-                color = if ((coolant ?: 0.0) > 105) Palette.Warning else Palette.Value,
-            )
-            val volts = live.voltage
-            Tile(
-                "Battery", fmt(volts), "V", Modifier.weight(1f),
-                color = if (running && volts != null && volts < 13.2) Palette.Caution else Palette.Value,
-            )
-            Tile("Throttle", fmt(d.throttleRel, 0), "%", Modifier.weight(1f))
-        }
-    }
-    Spacer(Modifier.height(24.dp))
-}
-
-// ---- Live map ----
-
-@Composable
-private fun DriveMap(live: LiveState, settings: AppSettings, locationOk: Boolean, onSwipeBack: () -> Unit) {
-    val trail by LiveBus.trail.collectAsState()
-    var follow by remember { mutableStateOf(true) }
-    var touchedAt by remember { mutableLongStateOf(0L) }
-    // After the map is panned or zoomed by hand, it returns to the car 8 s after the last touch.
-    LaunchedEffect(touchedAt) {
-        if (touchedAt > 0) {
-            delay(8_000)
-            follow = true
-        }
-    }
-    val scale = ColorScale.entries.firstOrNull { it.name == settings.routeScale } ?: ColorScale.Parula
-    val tiles = MapTiles.entries.firstOrNull { it.name == settings.mapTiles } ?: MapTiles.Esri
-
-    val map: @Composable (Modifier) -> Unit = { m ->
-        Box(m.clipToBounds()) {
-            LiveMap(
-                trail = trail,
-                position = live.position,
-                speedKmh = live.values[0x0D],
-                scale = scale,
-                tileKind = tiles,
-                follow = follow,
-                onTouched = { follow = false; touchedAt = System.currentTimeMillis() },
-                modifier = Modifier.fillMaxSize(),
-            )
-            val message = when {
-                !locationOk -> "Allow location in Settings > Route recording to see the map"
-                live.position == null && live.trip.active -> "Waiting for GPS"
-                live.position == null -> "The map follows the car once a trip starts"
-                else -> null
-            }
-            message?.let { MapNote(it, Modifier.align(Alignment.TopCenter)) }
-            if (!follow && live.position != null) {
-                Text(
-                    "Re-centre",
-                    style = Type.body.copy(color = Palette.Accent, fontSize = Type.sz(15f)),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Palette.Background.copy(alpha = 0.85f))
-                        .pressable { follow = true; touchedAt = 0L }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-            }
-            Text(
-                tiles.credit,
-                style = Type.label.copy(fontSize = Type.sz(10f), color = Palette.Label),
-                modifier = Modifier.align(Alignment.BottomEnd).background(Palette.Background.copy(alpha = 0.6f)).padding(4.dp),
-            )
-        }
-    }
-
-    // A swipe to the right on the numbers goes back to the gauges.
-    val swipeBack = Modifier.pointerInput(Unit) {
-        var total = 0f
-        detectHorizontalDragGestures(
-            onDragStart = { total = 0f },
-            onDragEnd = { if (total > 80.dp.toPx()) onSwipeBack() },
-        ) { _, dx -> total += dx }
-    }
-
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        if (maxWidth > maxHeight) {
-            Row(Modifier.fillMaxSize()) {
-                map(Modifier.weight(1f).fillMaxHeight())
-                MapReadout(live, vertical = true, modifier = Modifier.width(250.dp).fillMaxHeight().then(swipeBack))
-            }
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                map(Modifier.fillMaxWidth().weight(1f))
-                MapReadout(live, vertical = false, modifier = Modifier.fillMaxWidth().then(swipeBack))
-            }
-        }
-    }
-}
-
-@Composable
-private fun MapNote(text: String, modifier: Modifier) {
-    Text(
-        text,
-        style = Type.label.copy(color = Palette.Value),
-        modifier = modifier
-            .padding(top = 12.dp, start = 16.dp, end = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Palette.Background.copy(alpha = 0.85f))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
-}
-
-/** The numbers kept under the map: speed, instant economy and trip average, with the shift light. */
-@Composable
-private fun MapReadout(live: LiveState, vertical: Boolean, modifier: Modifier) {
-    val hero = heroReading(live)
-    val speed = live.values[0x0D]
-    val running = live.link == Link.Live && (live.values[0x0C] ?: 0.0) > 0
-    val heroColor by androidx.compose.animation.animateColorAsState(
-        hero.color, Motion.fade(400), label = "mapHero",
-    )
-    val big = Type.value.copy(fontSize = Type.sz(52f), lineHeight = Type.sz(54f))
-    @Composable
-    fun Reading(value: String, unit: String, style: androidx.compose.ui.text.TextStyle, m: Modifier = Modifier) {
-        Column(m) {
-            if (value == "--") Text("–", style = style.copy(color = Palette.Label.copy(alpha = 0.45f)))
-            else RollingNumber(value, style)
-            Text(unit, style = Type.label, maxLines = 1)
-        }
-    }
-    Column(
-        modifier
-            .background(Palette.Surface)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = if (vertical) Arrangement.Center else Arrangement.Top,
-    ) {
-        ShiftCue(live.values[0x0C], live.derived, height = 8.dp)
-        Spacer(Modifier.height(8.dp))
-        val heroStyle = big.copy(color = heroColor)
-        val sideStyle = Type.value
-        if (vertical) {
-            Reading(hero.value, hero.unit, heroStyle)
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Reading(if (running) fmt(speed, 0) else "--", "km/h", sideStyle, Modifier.weight(1f))
-                Reading(fmt(live.trip.kmPerL), "km/L trip", sideStyle, Modifier.weight(1f))
-            }
-        } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                Reading(if (running) fmt(speed, 0) else "--", "km/h", sideStyle, Modifier.weight(1f))
-                Reading(hero.value, hero.unit, heroStyle, Modifier.weight(1.4f))
-                Reading(fmt(live.trip.kmPerL), "km/L  trip", sideStyle, Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-/**
- * A thin line from 0 to 30 km/L. The accent fill is the instant value,
- * the white tick is the trip average, so you can see at a glance if you are above or below it.
- */
-@Composable
-private fun EconomyBar(instant: Double?, average: Double?) {
-    val scale = 30.0
-    val fill by animateFloatAsState(
-        ((instant ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), Motion.settle(), label = "fill",
-    )
-    val mark by animateFloatAsState(
-        ((average ?: 0.0) / scale).coerceIn(0.0, 1.0).toFloat(), Motion.glide(), label = "mark",
-    )
-    val accent = Palette.Accent
-    val tick = Palette.Value
-    val track = Palette.Hairline
-    Column {
-        Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-            val y = size.height / 2
-            val w = size.width
-            drawLine(track, Offset(0f, y), Offset(w, y), 2.dp.toPx(), StrokeCap.Round)
-            if (fill > 0f) drawLine(accent, Offset(0f, y), Offset(w * fill, y), 2.dp.toPx(), StrokeCap.Round)
-            if (average != null) {
-                drawLine(tick, Offset(w * mark, 0f), Offset(w * mark, size.height), 1.5.dp.toPx(), StrokeCap.Round)
-            }
-        }
-        val small = Type.label.copy(fontSize = Type.sz(12f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("0", style = small)
-            Text(if (average != null) "trip average ${fmt(average)}" else "", style = small.copy(color = Palette.Value))
-            Text("30", style = small)
-        }
-    }
-}
-
-
 /**
  * Shift light: a bar that fills as engine speed approaches the upshift point for the current
  * throttle, and turns accent when it is time to shift. "Shift down" replaces it when lugging.
@@ -567,11 +856,9 @@ fun ShiftCue(rpm: Double?, d: com.abeernch.civicobd.core.Derived, modifier: Modi
     Column(modifier) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
             val r = size.height / 2
-            drawRoundRect(Palette.Hairline, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+            drawRoundRect(Palette.Hairline, cornerRadius = CornerRadius(r, r))
             val w = if (d.lugging) size.width else size.width * fill
-            if (w > 0f) {
-                drawRoundRect(color, size = androidx.compose.ui.geometry.Size(w, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
-            }
+            if (w > 0f) drawRoundRect(color, size = Size(w, size.height), cornerRadius = CornerRadius(r, r))
         }
         Text(
             when {
