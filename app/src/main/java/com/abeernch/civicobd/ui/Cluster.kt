@@ -1,7 +1,5 @@
 package com.abeernch.civicobd.ui
 
-import android.graphics.BlurMaskFilter
-import android.os.Build
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -21,10 +19,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
@@ -108,6 +103,7 @@ fun DriveCluster(state: ClusterState, modifier: Modifier = Modifier, wake: Float
 
     Canvas(modifier.semantics { contentDescription = description }) {
         val s = minOf(size.width / VIEW_W, size.height / VIEW_H)
+        if (s < 0.05f) return@Canvas // not laid out yet: gradients and blurs need a real size
         val ox = (size.width - VIEW_W * s) / 2
         val oy = (size.height - VIEW_H * s) / 2 - VIEW_TOP * s
         val g = Geo(s, ox, oy, this)
@@ -310,30 +306,15 @@ private fun ecoBrush(g: Geo) = Brush.horizontalGradient(
     startX = g.p(86f, 0f).x, endX = g.p(304f, 0f).x,
 )
 
-/** A soft glow under the ring's fill, where the phone can blur it. */
+/** A soft glow under the ring's fill: two wider, fainter strokes of the same colours (no blur filter). */
 private fun DrawScope.glowArc(g: Geo, r: Float, start: Float, sweep: Float, width: Float, cut: Boolean, alpha: Float) {
-    if (Build.VERSION.SDK_INT < 28 || !Palette.isDark) return
+    if (!Palette.isDark) return
     val s = g.s
-    drawIntoCanvas { canvas ->
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = width * s
-            strokeCap = android.graphics.Paint.Cap.ROUND
-            this.alpha = (alpha * 255).toInt()
-            maskFilter = BlurMaskFilter(2.5f * s * 1.6f, BlurMaskFilter.Blur.NORMAL)
-            if (cut) {
-                color = Lux.Cut.copy(alpha = alpha).toArgb()
-            } else {
-                shader = android.graphics.LinearGradient(
-                    g.p(86f, 0f).x, 0f, g.p(304f, 0f).x, 0f,
-                    intArrayOf(Lux.Red.toArgb(), Lux.Amber.toArgb(), lerp(Lux.Amber, Lux.Green, 0.62f).toArgb(), Lux.Green.toArgb()),
-                    floatArrayOf(0f, 0.42f, 0.7f, 1f), android.graphics.Shader.TileMode.CLAMP,
-                )
-            }
-        }
-        val tl = g.p(CX - r, CY - r)
-        canvas.nativeCanvas.drawArc(tl.x, tl.y, tl.x + 2 * r * s, tl.y + 2 * r * s, start, sweep, false, paint)
-    }
+    val tl = g.p(CX - r, CY - r)
+    val sz = Size(2 * r * s, 2 * r * s)
+    val brush = if (cut) Brush.linearGradient(listOf(Lux.Cut, Lux.Cut)) else ecoBrush(g)
+    drawArc(brush, start, sweep, false, tl, sz, alpha = alpha * 0.45f, style = Stroke(width * s, cap = StrokeCap.Round))
+    drawArc(brush, start, sweep, false, tl, sz, alpha = alpha * 0.2f, style = Stroke(width * 1.7f * s, cap = StrokeCap.Round))
 }
 
 private fun DrawScope.chevron(g: Geo, deg: Float, sgn: Float, on: Float, accent: Color) {

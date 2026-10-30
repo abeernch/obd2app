@@ -9,6 +9,15 @@ APK=app/build/outputs/apk/uitest/app-uitest.apk
 
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "shot $1"; }
 
+# Stops early if the emulator has gone away, instead of spending the time limit on failing commands.
+alive() {
+  if [ "$(adb get-state 2>/dev/null | tr -d '\r')" != "device" ]; then
+    echo "EMULATOR GONE at: $1"
+    adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" 2>&1 || true
+    exit 1
+  fi
+}
+
 # Taps the centre of the first on-screen element whose text matches $1 (exact), via the accessibility tree.
 tap_text() {
   for attempt in 1 2 3; do
@@ -81,17 +90,14 @@ burst() {  # burst NAME COUNT
 }
 
 # 1. Cold start with the demo car switched on: the splash, the drive welcome (the car's lights come up,
-#    a greeting), then the cluster sweeping awake. Frames throughout, plus a recording attempt.
-adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 14 /sdcard/splash.mp4 &
-REC=$!
-sleep 2
+#    a greeting), then the cluster sweeping awake. Frames throughout (no screen recording here: the app is
+#    decoding its own clip, and the emulator does both in software).
 adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
 burst start 40
-wait $REC
-adb pull /sdcard/splash.mp4 "$OUT/splash.mp4"
+alive "the drive welcome"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
-sleep 14; shot 03_drive_accelerating
+sleep 14; alive "the first minute of driving"; shot 03_drive_accelerating
 # Press a control and catch the light passing across it (the Bluetooth tile just looks for the adapter again).
 xy=$(pos_text "BLUETOOTH"); if [ -n "$xy" ]; then adb shell input tap $xy; burst 03c_tile_press 4; fi
 sleep 20; shot 04_drive_cruise
@@ -128,6 +134,7 @@ adb shell input keyevent KEYCODE_HOME; sleep 5; shot 05f_floating_window
 adb shell am start -n $PKG/.MainActivity; sleep 4; shot 05g_back_from_window
 tap_text "Gauges"; sleep 2
 
+alive "the map and floating window"
 tap_text "Car"; sleep 2; shot 06_car_top
 adb shell input swipe 540 1700 540 700 400; sleep 1.5; shot 07_car_tank
 scroll_tap "Read codes now"; sleep 4; shot 08b_car_faults_read
@@ -154,7 +161,7 @@ tap_text "Drive"; sleep 2; shot 10d_drive_parked
 adb shell settings put system user_rotation 1; sleep 4; shot 10d2_parked_landscape
 adb shell settings put system user_rotation 0; sleep 4
 # End the paused drive, so it can be merged later on: the goodbye plays (the car's lights go out).
-tap_text "End drive now"; burst 10e_goodbye 30; sleep 4; shot 10f_drive_ended
+tap_text "End drive now"; burst 10e_goodbye 30; alive "the goodbye"; sleep 4; shot 10f_drive_ended
 adb shell settings put system user_rotation 1; sleep 4; shot 10f2_ended_landscape
 adb shell settings put system user_rotation 0; sleep 4
 tap_text "Stats"; sleep 2; shot 10_stats_week
@@ -177,6 +184,7 @@ tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
 # 6. Trips: the list, an imported drive's page, then the demo drive's page and route map.
+alive "the stats and fill-ups"
 tap_text "Trips"; sleep 2; shot 13_trips_list
 tap_text "Car Scanner"; sleep 4; shot 14_trip_imported
 adb shell input swipe 540 1800 540 700 400; sleep 1.5; shot 14b_trip_imported_lower

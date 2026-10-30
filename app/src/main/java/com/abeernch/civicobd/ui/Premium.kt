@@ -1,11 +1,9 @@
 package com.abeernch.civicobd.ui
 
-import android.graphics.BlurMaskFilter
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
-import android.os.Build
 import android.view.Surface
 import android.view.TextureView
 import androidx.annotation.RawRes
@@ -58,19 +56,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -120,7 +114,7 @@ object Lux {
 
     /** The page: a soft lift of dark grey behind the instruments, falling to black at the edges. */
     fun DrawScope.drawLuxPage(alpha: Float = 1f, centreY: Float = 0.34f, inner: Color = Color(0xFF0B0E12), mid: Color = Color(0xFF050608)) {
-        if (!dark || alpha <= 0f) return
+        if (!dark || alpha <= 0f || size.width < 1f || size.height < 1f) return
         val c = Offset(size.width * 0.5f, size.height * centreY)
         val ry = size.height * 0.7f
         val k = (size.width * 1.2f) / ry
@@ -208,15 +202,24 @@ private fun DrawScope.pressLight(run: Float) {
     )
 }
 
-/** A soft drop shadow under a slanted face. Needs Android 9 for the blur; older phones go without. */
-private fun DrawScope.slantShadow(cut: Float, offsetY: Float, blur: Float, alpha: Float) {
-    if (Build.VERSION.SDK_INT < 28 || !Palette.isDark) return
-    drawIntoCanvas { canvas ->
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.Black.copy(alpha = alpha).toArgb()
-            maskFilter = BlurMaskFilter(blur, BlurMaskFilter.Blur.NORMAL)
+/**
+ * A soft drop shadow under a slanted face, built from a few stacked translucent copies that spread and fade
+ * (no blur filter, which some graphics drivers handle badly).
+ */
+private fun DrawScope.slantShadow(cut: Float, offsetY: Float, spread: Float, alpha: Float) {
+    if (!Palette.isDark) return
+    val steps = 4
+    for (i in 1..steps) {
+        val f = i / steps.toFloat()
+        val grow = spread * f
+        val path = Path().apply {
+            moveTo(cut - grow, offsetY * f - grow * 0.5f)
+            lineTo(size.width + grow, offsetY * f - grow * 0.5f)
+            lineTo(size.width - cut + grow, size.height + offsetY * f + grow * 0.5f)
+            lineTo(-grow, size.height + offsetY * f + grow * 0.5f)
+            close()
         }
-        canvas.nativeCanvas.drawPath(slantPath(size, cut, offsetY).asAndroidPath(), paint)
+        drawPath(path, Color.Black.copy(alpha = alpha / steps * (1.15f - f * 0.6f)))
     }
 }
 
@@ -257,7 +260,7 @@ fun SlantButton(
             }
             .drawBehind {
                 val c = cut.toPx().coerceAtMost(size.width / 3)
-                slantShadow(c, (6f - 3f * press).dp.toPx(), (9f - 4f * press).dp.toPx(), 0.6f - 0.05f * press)
+                slantShadow(c, (6f - 3f * press).dp.toPx(), (5f - 2.5f * press).dp.toPx(), 0.6f - 0.05f * press)
             }
     ) {
         Box(
@@ -470,7 +473,7 @@ fun CloudBackdrop(alpha: Float, modifier: Modifier = Modifier) {
     val b by t.animateFloat(0f, 1f, infiniteRepeatable(tween(22_000), RepeatMode.Reverse), label = "c2")
     val c by t.animateFloat(0f, 1f, infiniteRepeatable(tween(20_000), RepeatMode.Reverse), label = "c3")
     Canvas(modifier) {
-        if (alpha <= 0f || !Palette.isDark) return@Canvas
+        if (alpha <= 0f || !Palette.isDark || size.width < 1f) return@Canvas
         val u = 1.dp.toPx()
         val boxW = size.width + 180 * u
         val left = -90 * u
@@ -510,6 +513,16 @@ fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = 
             .semantics { contentDescription = text }
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
+                // A faint glow behind the words, as wide as the title, drawn as a soft halo.
+                if (Palette.isDark) {
+                    val c = center
+                    val ry = size.height * 0.45f
+                    if (ry > 1f) {
+                        scale(scaleX = size.width * 0.32f / ry, scaleY = 1f, pivot = c) {
+                            drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent), center = c, radius = ry), ry, c)
+                        }
+                    }
+                }
                 drawContent()
                 // The wipe: opaque up to its leading edge, feathered over the last 18 %.
                 val span = size.width + 60.dp.toPx()
@@ -521,7 +534,7 @@ fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = 
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = base.copy(color = Lux.Txt, shadow = Shadow(Color.White.copy(alpha = 0.28f), Offset.Zero, 22f)), maxLines = 1)
+        Text(text, style = base.copy(color = Lux.Txt), maxLines = 1)
         if (sheen in 0.001f..0.999f) {
             Box(
                 Modifier

@@ -47,12 +47,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -316,10 +316,10 @@ private fun ControlTiles(
     }
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SlantTile(LuxIcon.Hud, "HUD", "Open", Led.Off, Modifier.weight(1f), description = "Open the head-up display", onClick = onHud)
-        SlantTile(LuxIcon.Bluetooth, "BLUETOOTH", bt, btLed, Modifier.weight(1f)) {
+        SlantTile(LuxIcon.Bluetooth, "BLUETOOTH", bt, btLed, Modifier.weight(1f), description = "Bluetooth: $bt") {
             com.abeernch.civicobd.service.ObdService.wake(context)
         }
-        SlantTile(LuxIcon.Gps, "GPS", gps, gpsLed, Modifier.weight(1f)) {
+        SlantTile(LuxIcon.Gps, "GPS", gps, gpsLed, Modifier.weight(1f), description = "GPS: $gps") {
             if (live.locationOff || !locationOk) onLocation() else onGpsOn()
         }
     }
@@ -455,7 +455,17 @@ private fun MapFigures(live: LiveState, modifier: Modifier) {
                 d.gear == 0 -> "N"
                 else -> d.gear.toString()
             }
-            Text(gear, style = lux(24.sp, FontWeight.Medium, if (Palette.isDark) Color.White else Palette.Value).copy(shadow = Shadow(Color.White.copy(alpha = 0.35f), Offset.Zero, 28f)))
+            Text(
+                gear,
+                style = lux(24.sp, FontWeight.Medium, if (Palette.isDark) Color.White else Palette.Value),
+                // A soft halo behind the lit gear, like the cluster's.
+                modifier = Modifier.drawBehind {
+                    if (Palette.isDark) {
+                        val r = size.height * 0.8f
+                        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.16f), Color.Transparent), center = center, radius = r), r, center)
+                    }
+                },
+            )
             val (label, col) = when {
                 running && d.lugging -> "DOWN" to Lux.Amber
                 running && d.shiftUp -> "SHIFT" to Lux.Gold
