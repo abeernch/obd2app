@@ -25,19 +25,43 @@ jobs:
           name: bisect-apk
           path: app/build/outputs/apk/uitest/app-uitest.apk
 
+  build-old:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fb369e5bda606cf72eb8f0c9e027aaf3d58348d0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build the last passing test APK
+        run: gradle assembleUitest --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bisect-apk-old
+          path: app/build/outputs/apk/uitest/app-uitest.apk
+
   run:
-    needs: build
+    needs: [build, build-old]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        variant: [base, no_intro, rect_clip, no_page, classic_font, no_cluster]
+        include:
+          - { name: old-burst, apk: bisect-apk-old, mode: burst }
+          - { name: new-burst, apk: bisect-apk, mode: burst }
+          - { name: new-none, apk: bisect-apk, mode: none }
+          - { name: new-slow, apk: bisect-apk, mode: slow }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: bisect-apk
+          name: ${{ matrix.apk }}
           path: app/build/outputs/apk/uitest
       - name: Enable KVM
         run: |
@@ -58,7 +82,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: false
           emulator-boot-timeout: 900
-          script: bash .github/bisect.sh ${{ matrix.variant }}
+          script: bash .github/bisect.sh ${{ matrix.mode }}
       - name: Publish frames
         if: always()
         env:
@@ -66,6 +90,6 @@ jobs:
         run: |
           mkdir -p bisect
           ls -la bisect
-          gh release delete bisect-${{ matrix.variant }} --yes --cleanup-tag || true
-          gh release create bisect-${{ matrix.variant }} $(find bisect -maxdepth 1 -type f -size +0 | sort | awk 'NR<=12 || /final|result|logcat/') \
-            --prerelease --title "Bisect ${{ matrix.variant }}" --notes "Run ${{ github.run_number }}"
+          gh release delete bisect-${{ matrix.name }} --yes --cleanup-tag || true
+          gh release create bisect-${{ matrix.name }} $(find bisect -maxdepth 1 -type f -size +0 | sort | awk 'NR<=12 || /final|result|logcat/') \
+            --prerelease --title "Bisect ${{ matrix.name }}" --notes "Run ${{ github.run_number }}"
