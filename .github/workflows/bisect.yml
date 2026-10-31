@@ -25,6 +25,12 @@ jobs:
           name: bisect-apk
           path: app/build/outputs/apk/uitest/app-uitest.apk
 
+  run: gradle assembleUitest --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bisect-apk
+          path: app/build/outputs/apk/uitest/app-uitest.apk
+
   build-old:
     runs-on: ubuntu-latest
     steps:
@@ -46,17 +52,18 @@ jobs:
           path: app/build/outputs/apk/uitest/app-uitest.apk
 
   run:
-    needs: [build, build-old]
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: old-burst, apk: bisect-apk-old, mode: burst }
-          - { name: new-burst, apk: bisect-apk, mode: burst }
-          - { name: new-none, apk: bisect-apk, mode: none }
-          - { name: new-slow, apk: bisect-apk, mode: slow }
+          - { name: api30, apk: bisect-apk, mode: burst, api: 30, target: google_apis }
+          - { name: api31, apk: bisect-apk, mode: burst, api: 31, target: google_apis }
+          - { name: api34, apk: bisect-apk, mode: burst, api: 34, target: google_apis }
+          - { name: api35, apk: bisect-apk, mode: burst, api: 35, target: google_apis }
+          - { name: api33-aosp, apk: bisect-apk, mode: burst, api: 33, target: default }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -72,8 +79,8 @@ jobs:
         timeout-minutes: 12
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 33
-          target: google_apis
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
           ram-size: 4096M
