@@ -113,7 +113,7 @@ object Lux {
 
     /** The page: a soft lift of dark grey behind the instruments, falling to black at the edges. */
     fun DrawScope.drawLuxPage(alpha: Float = 1f, centreY: Float = 0.34f, inner: Color = Color(0xFF0B0E12), mid: Color = Color(0xFF050608)) {
-        if (!dark || alpha <= 0f || size.width < 1f || size.height < 1f) return
+        if (!dark || alpha <= 0f || size.width < 1f || size.height < 1f || TestFlags.noPage) return
         val c = Offset(size.width * 0.5f, size.height * centreY)
         val ry = size.height * 0.7f
         val k = (size.width * 1.2f) / ry
@@ -137,6 +137,7 @@ fun lux(size: TextUnit, weight: FontWeight = FontWeight.Normal, color: Color = L
 /** A rectangle whose left and right sides lean, like a parallelogram. */
 class SlantShape(private val cut: Dp) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        if (TestFlags.rectClip) return Outline.Rectangle(androidx.compose.ui.geometry.Rect(Offset.Zero, size))
         val c = with(density) { cut.toPx() }.coerceAtMost(size.width / 3)
         return Outline.Generic(slantPath(size, c))
     }
@@ -359,7 +360,7 @@ fun ViewSwitch(labels: List<String>, icons: List<LuxIcon>, position: Float, modi
                 val face = Size(seg, size.height)
                 val path = slantPath(face, c)
                 drawContext.canvas.save()
-                drawContext.canvas.clipPath(path)
+                if (!TestFlags.rectClip) drawContext.canvas.clipPath(path)
                 // Draw the face within one segment's width.
                 drawRect(Brush.verticalGradient(0f to Color(0xFF101114), 0.52f to Color(0xFF08090B), 1f to Color(0xFF040405)), size = face)
                 drawRect(

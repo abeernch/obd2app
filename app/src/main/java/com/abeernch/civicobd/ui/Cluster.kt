@@ -69,6 +69,10 @@ private val GEAR_ANGLES = listOf(-30f, -18f, -6f, 6f, 18f, 30f)
  */
 @Composable
 fun DriveCluster(state: ClusterState, modifier: Modifier = Modifier, wake: Float? = null) {
+    if (TestFlags.noCluster) {
+        androidx.compose.foundation.layout.Box(modifier)
+        return
+    }
     val measurer = rememberTextMeasurer(cacheSize = 48)
     val ringTarget = (if (state.fuelCut) 30.0 else state.instant ?: 0.0).coerceIn(0.0, 30.0).toFloat()
     val ring by animateFloatAsState(ringTarget, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow), label = "ring")

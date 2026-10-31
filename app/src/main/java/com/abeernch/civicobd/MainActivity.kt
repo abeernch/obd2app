@@ -168,6 +168,17 @@ class MainActivity : ComponentActivity() {
         val systemDarkNow = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         Appearance.upgradeOnce(settings)
+        if (BuildConfig.TEST_HOOKS) {
+            com.abeernch.civicobd.ui.TestFlags.apply {
+                noIntro = intent.getBooleanExtra("no_intro", false)
+                rectClip = intent.getBooleanExtra("rect_clip", false)
+                noPage = intent.getBooleanExtra("no_page", false)
+                classicFont = intent.getBooleanExtra("classic_font", false)
+                noCluster = intent.getBooleanExtra("no_cluster", false)
+            }
+            if (com.abeernch.civicobd.ui.TestFlags.noIntro) introArmed = false
+            if (com.abeernch.civicobd.ui.TestFlags.classicFont) settings.face = com.abeernch.civicobd.ui.Face.Barlow.name
+        }
         Appearance.apply(settings, systemDarkNow)
 
         handleOpen(intent)
@@ -258,6 +269,8 @@ class MainActivity : ComponentActivity() {
 
             // The drive that has just ended, for the goodbye on Drive. Cleared when the next one starts.
             var completed by remember { mutableStateOf<com.abeernch.civicobd.ui.CompletedDrive?>(null) }
+            // Between the drive ending and its figures loading, Drive stays blank rather than flashing the cluster.
+            var goodbyePending by remember { mutableStateOf(false) }
             val previousTrip = remember { longArrayOf(live.trip.id) }
             LaunchedEffect(live.trip.id) {
                 val id = live.trip.id
@@ -265,17 +278,23 @@ class MainActivity : ComponentActivity() {
                 previousTrip[0] = id
                 if (id >= 0) {
                     completed = null
+                    goodbyePending = false
                 } else if (ended >= 0) {
-                    completed = withContext(Dispatchers.IO) {
-                        // A drive under 100 m is not kept, so there is nothing to say goodbye to.
-                        store.byId(ended)?.let { row ->
-                            com.abeernch.civicobd.ui.CompletedDrive(
-                                com.abeernch.civicobd.core.TripSummary.of(row, store),
-                                runCatching {
-                                    com.abeernch.civicobd.core.RouteContexts.of(row, store, recordings, com.abeernch.civicobd.ui.routeNames(settings))
-                                }.getOrNull(),
-                            )
+                    goodbyePending = true
+                    // A drive under 100 m is not kept, so there is nothing to say goodbye to.
+                    val row = withContext(Dispatchers.IO) { store.byId(ended) }
+                    completed = row?.let {
+                        com.abeernch.civicobd.ui.CompletedDrive(withContext(Dispatchers.IO) { com.abeernch.civicobd.core.TripSummary.of(it, store) }, null)
+                    }
+                    goodbyePending = false
+                    // How it compares on its route reads every drive's end points, so it follows a moment later.
+                    if (row != null) {
+                        val route = withContext(Dispatchers.IO) {
+                            runCatching {
+                                com.abeernch.civicobd.core.RouteContexts.of(row, store, recordings, com.abeernch.civicobd.ui.routeNames(settings))
+                            }.getOrNull()
                         }
+                        if (route != null && completed?.summary?.trip?.id == row.id) completed = completed?.copy(route = route)
                     }
                 }
             }
@@ -306,6 +325,7 @@ class MainActivity : ComponentActivity() {
                             PackageManager.PERMISSION_GRANTED,
                         onHud = { hud = true },
                         completed = completed,
+                        goodbyePending = goodbyePending,
                         onGoodbyePlayed = { completed = completed?.copy(played = true) },
                         onViewDrive = { id ->
                             openTripId = id

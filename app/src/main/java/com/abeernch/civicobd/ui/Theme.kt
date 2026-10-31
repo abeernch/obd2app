@@ -100,7 +100,7 @@ private val SairaNumeric = FontFamily(
 )
 
 /** Saira, whatever face is chosen elsewhere: the Drive tab's instrument lettering. */
-val Instrument: FontFamily get() = Saira
+val Instrument: FontFamily get() = if (TestFlags.classicFont) Barlow else Saira
 
 // Barlow: modelled on DIN road-sign and instrument lettering.
 private val Barlow = FontFamily(

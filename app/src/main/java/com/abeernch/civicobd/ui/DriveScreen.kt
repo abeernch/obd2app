@@ -125,6 +125,7 @@ fun DriveScreen(
     locationOk: Boolean = true,
     onHud: () -> Unit = {},
     completed: CompletedDrive? = null,
+    goodbyePending: Boolean = false,
     onGoodbyePlayed: () -> Unit = {},
     onViewDrive: (Long) -> Unit = {},
     wakeAtMs: Long = 0L,
@@ -136,6 +137,7 @@ fun DriveScreen(
         when {
             paused -> FadeIn("parked") { ParkedView(live, today, locationOk, onHud, onLocation) }
             !live.trip.active && completed != null -> Goodbye(completed, today, onGoodbyePlayed, onViewDrive)
+            !live.trip.active && goodbyePending -> Unit // the drive's figures are loading: a moment of quiet
             else -> FadeIn("instruments") { Instruments(live, tank, settings, locationOk, onHud, wakeAtMs, onLocation) }
         }
     }
