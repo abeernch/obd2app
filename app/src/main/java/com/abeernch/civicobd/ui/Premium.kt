@@ -318,7 +318,15 @@ private fun StatusLed(state: Led) {
         if (state == Led.Off) {
             drawCircle(Color(0xFF2C3036), r)
         } else {
-            drawCircle(Color.White.copy(alpha = 0.35f * blink), r * 2.4f)
+            // A small light with a soft glow around it, fading to nothing (no edge).
+            val glow = r * 3.2f
+            drawCircle(
+                Brush.radialGradient(
+                    0f to Color.White.copy(alpha = 0.45f * blink), 0.35f to Color.White.copy(alpha = 0.18f * blink), 1f to Color.Transparent,
+                    center = center, radius = glow,
+                ),
+                glow, center,
+            )
             drawCircle(Color(0xFFF4F5F7).copy(alpha = blink), r)
         }
     }

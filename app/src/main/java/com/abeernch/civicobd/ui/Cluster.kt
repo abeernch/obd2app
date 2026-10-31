@@ -47,14 +47,15 @@ data class ClusterState(
     val label: String,            // under the instant figure: km/L NOW, IDLE, FUEL CUT
 )
 
-// Geometry of the approved design, in its own 390 x 352 units (y from 64 to 416).
+// Geometry of the approved design, in its own units: 390 wide, framed from y 96 to 416 (the artwork's
+// visible extent, so the cluster sits centred in its space rather than below empty headroom).
 private const val CX = 195f
 private const val CY = 230f
 private const val R = 106f
 private const val PANEL_R = 165f
 private const val VIEW_W = 390f
-private const val VIEW_H = 352f
-private const val VIEW_TOP = 64f
+private const val VIEW_H = 320f
+private const val VIEW_TOP = 96f
 private fun ang(v: Float) = 135f + 9f * v
 
 private val WakeEase = CubicBezierEasing(0.45f, 0f, 0.25f, 1f)
