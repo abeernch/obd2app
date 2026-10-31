@@ -25,32 +25,6 @@ jobs:
           name: bisect-apk
           path: app/build/outputs/apk/uitest/app-uitest.apk
 
-  run: gradle assembleUitest --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bisect-apk
-          path: app/build/outputs/apk/uitest/app-uitest.apk
-
-  build-old:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fb369e5bda606cf72eb8f0c9e027aaf3d58348d0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-      - name: Build the last passing test APK
-        run: gradle assembleUitest --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bisect-apk-old
-          path: app/build/outputs/apk/uitest/app-uitest.apk
-
   run:
     needs: build
     runs-on: ubuntu-latest
@@ -59,16 +33,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: api30, apk: bisect-apk, mode: burst, api: 30, target: google_apis }
-          - { name: api31, apk: bisect-apk, mode: burst, api: 31, target: google_apis }
-          - { name: api34, apk: bisect-apk, mode: burst, api: 34, target: google_apis }
-          - { name: api35, apk: bisect-apk, mode: burst, api: 35, target: google_apis }
-          - { name: api33-aosp, apk: bisect-apk, mode: burst, api: 33, target: default }
+          - { name: api30, api: 30, target: google_apis }
+          - { name: api31, api: 31, target: google_apis }
+          - { name: api34, api: 34, target: google_apis }
+          - { name: api35, api: 35, target: google_apis }
+          - { name: api33-aosp, api: 33, target: default }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.apk }}
+          name: bisect-apk
           path: app/build/outputs/apk/uitest
       - name: Enable KVM
         run: |
@@ -76,7 +50,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run on emulator
-        timeout-minutes: 12
+        timeout-minutes: 14
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
@@ -89,14 +63,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: false
           emulator-boot-timeout: 900
-          script: bash .github/bisect.sh ${{ matrix.mode }}
+          script: bash .github/bisect.sh burst
       - name: Publish frames
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p bisect
-          ls -la bisect
           gh release delete bisect-${{ matrix.name }} --yes --cleanup-tag || true
           gh release create bisect-${{ matrix.name }} $(find bisect -maxdepth 1 -type f -size +0 | sort | awk 'NR<=12 || /final|result|logcat/') \
             --prerelease --title "Bisect ${{ matrix.name }}" --notes "Run ${{ github.run_number }}"
