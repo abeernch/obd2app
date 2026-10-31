@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu: [swiftshader_indirect, swangle_indirect]
+        gpu: [swiftshader_indirect, guest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -45,24 +45,26 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Start an emulator by hand, logging to a file
-        timeout-minutes: 20
+        timeout-minutes: 22
         run: |
-          set -x
           SDK=$ANDROID_HOME
           export PATH=$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "system-images;android-33;google_apis;x86_64" "emulator" "platform-tools" > /dev/null
-          echo no | avdmanager create avd -n t -k "system-images;android-33;google_apis;x86_64" -d pixel_6
-          emulator -version | head -3 > emulator_version.txt || true
+          export ANDROID_AVD_HOME=$HOME/.android/avd
+          mkdir -p "$ANDROID_AVD_HOME" bisect
+          IMG="system-images;android-33;google_apis;x86_64"
+          (yes | sdkmanager --licenses; yes | sdkmanager --install "$IMG" "emulator" "platform-tools") > bisect/setup.log 2>&1 || true
+          echo no | avdmanager --verbose create avd --force --name t --device pixel_6 --package "$IMG" --tag google_apis --abi x86_64 >> bisect/setup.log 2>&1 || true
+          ls -la "$ANDROID_AVD_HOME" >> bisect/setup.log 2>&1
+          emulator -list-avds >> bisect/setup.log 2>&1
           emulator -avd t -no-window -gpu ${{ matrix.gpu }} -no-snapshot -noaudio -no-boot-anim -memory 4096 -verbose > emulator.log 2>&1 &
           EMU=$!
-          adb wait-for-device
+          timeout 600 adb wait-for-device
           for i in $(seq 1 200); do [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break; sleep 3; done
           sleep 20
           bash .github/bisect.sh burst || true
           sleep 5
           echo "emulator process: $(ps -p $EMU -o pid=,stat= || echo exited)" | tee -a bisect/result.txt
-          wait $EMU; echo "emulator exit code: $?" | tee -a bisect/result.txt
+          kill $EMU 2>/dev/null || true
       - name: Publish
         if: always()
         env:
