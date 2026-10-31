@@ -168,18 +168,6 @@ class MainActivity : ComponentActivity() {
         val systemDarkNow = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         Appearance.upgradeOnce(settings)
-        if (BuildConfig.TEST_HOOKS) {
-            com.abeernch.civicobd.ui.TestFlags.apply {
-                noIntro = intent.getBooleanExtra("no_intro", false)
-                rectClip = intent.getBooleanExtra("rect_clip", false)
-                noPage = intent.getBooleanExtra("no_page", false)
-                classicFont = intent.getBooleanExtra("classic_font", false)
-                noCluster = intent.getBooleanExtra("no_cluster", false)
-            }
-            if (com.abeernch.civicobd.ui.TestFlags.noIntro) introArmed = false
-            if (com.abeernch.civicobd.ui.TestFlags.classicFont) settings.face = com.abeernch.civicobd.ui.Face.Barlow.name
-            registerTestShots()
-        }
         Appearance.apply(settings, systemDarkNow)
 
         handleOpen(intent)
@@ -446,32 +434,6 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putLong("stoppedAtMs", if (stoppedAtMs > 0) stoppedAtMs else System.currentTimeMillis())
-    }
-
-    /**
-     * Test build only: the emulator walkthrough asks for screenshots with a broadcast, and the app draws its own
-     * window into a picture in software. The emulator's own screen capture brings the emulator down with this app.
-     */
-    private fun registerTestShots() {
-        val receiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: android.content.Context, intent: Intent) {
-                val name = intent.getStringExtra("name") ?: return
-                try {
-                    val root = window.decorView
-                    if (root.width <= 0 || root.height <= 0) return
-                    val bitmap = android.graphics.Bitmap.createBitmap(root.width, root.height, android.graphics.Bitmap.Config.ARGB_8888)
-                    root.draw(android.graphics.Canvas(bitmap))
-                    val dir = File(filesDir, "shots").apply { mkdirs() }
-                    val tmp = File(dir, "$name.tmp")
-                    java.io.FileOutputStream(tmp).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
-                    tmp.renameTo(File(dir, "$name.png"))
-                    bitmap.recycle()
-                } catch (e: Exception) {
-                    LiveBus.log("Test shot failed: ${e.message}")
-                }
-            }
-        }
-        registerReceiver(receiver, android.content.IntentFilter("com.abeernch.civicobd.TEST_SHOT"))
     }
 
     /** The GPS control, when location is off or not allowed: the switch in Settings, or the permission. */

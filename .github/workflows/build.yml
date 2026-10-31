@@ -88,7 +88,8 @@ jobs:
         timeout-minutes: 22
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 33
+          # Android 11: the Android 13 and 14 images of emulator 37.2 go down on screen capture with this app.
+          api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_6
