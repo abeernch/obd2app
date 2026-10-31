@@ -7,7 +7,18 @@ OUT=ui-test
 mkdir -p "$OUT"
 APK=app/build/outputs/apk/uitest/app-uitest.apk
 
-shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "shot $1"; }
+# Screenshots come from the app itself (test build only): it draws its window into a picture in software
+# and saves it. The emulator's own screen capture (adb screencap, screenrecord) brings this emulator down
+# while this app is on screen, so neither is used. The video frame of the welcome is not in these pictures.
+shot() {
+  adb shell am broadcast -a com.abeernch.civicobd.TEST_SHOT --es name "$1" >/dev/null 2>&1
+  for t in 1 2 3 4 5 6 7 8; do
+    sleep 0.4
+    adb exec-out run-as $PKG sh -c "cat files/shots/$1.png 2>/dev/null" > "$OUT/$1.png" 2>/dev/null
+    if [ -s "$OUT/$1.png" ]; then echo "shot $1"; return 0; fi
+  done
+  rm -f "$OUT/$1.png"; echo "no shot $1"
+}
 
 # Stops early if the emulator has gone away, instead of spending the time limit on failing commands.
 alive() {
@@ -84,16 +95,16 @@ pos_text() {
   python3 .github/find_text.py "$OUT/ui.xml" "$1" 0
 }
 
-# Fast frame grabs (about 3 to 5 per second), more reliable than screenrecord on emulators.
+# A run of frames (about one a second).
 burst() {  # burst NAME COUNT
-  for n in $(seq -w 1 "$2"); do adb exec-out screencap -p > "$OUT/$1_$n.png"; done
+  for n in $(seq -w 1 "$2"); do shot "$1_$n"; done
 }
 
 # 1. Cold start with the demo car switched on: the splash, the drive welcome (the car's lights come up,
 #    a greeting), then the cluster sweeping awake. Frames throughout (no screen recording here: the app is
 #    decoding its own clip, and the emulator does both in software).
 adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
-burst start 40
+burst start 16
 alive "the drive welcome"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
@@ -105,16 +116,11 @@ sleep 20; shot 04_drive_cruise
 # 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.
 TAB_DRIVE=$(pos_text "Drive"); TAB_STATS=$(pos_text "Stats"); TAB_SETTINGS=$(pos_text "Settings")
 echo "tabs: drive=$TAB_DRIVE stats=$TAB_STATS settings=$TAB_SETTINGS"
-adb shell screenrecord --size 720x1600 --bit-rate 6000000 --time-limit 10 /sdcard/tabs.mp4 &
-REC=$!
+[ -n "$TAB_STATS" ] && adb shell input tap $TAB_STATS; burst tab_to_stats 2
 sleep 1
-[ -n "$TAB_STATS" ] && adb shell input tap $TAB_STATS; burst tab_to_stats 5
+[ -n "$TAB_SETTINGS" ] && adb shell input tap $TAB_SETTINGS; burst tab_to_settings 2
 sleep 1
-[ -n "$TAB_SETTINGS" ] && adb shell input tap $TAB_SETTINGS; burst tab_to_settings 5
-sleep 1
-[ -n "$TAB_DRIVE" ] && adb shell input tap $TAB_DRIVE; burst tab_to_drive 5
-wait $REC
-adb pull /sdcard/tabs.mp4 "$OUT/tabs.mp4"
+[ -n "$TAB_DRIVE" ] && adb shell input tap $TAB_DRIVE; burst tab_to_drive 2
 
 # 4. Coasting with fuel cut, HUD, then each screen.
 sleep 18; shot 05_drive_fuel_cut
@@ -155,13 +161,11 @@ tap_text "Night"; sleep 2
 # 5. Park the car: switching the demo off stops the engine; 60 s later the trip ends with a summary.
 tap_text "Settings"; sleep 2
 scroll_tap "Stop demo drive"; sleep 95
-adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
-adb shell cmd statusbar collapse; sleep 1
 tap_text "Drive"; sleep 2; shot 10d_drive_parked
 adb shell settings put system user_rotation 1; sleep 4; shot 10d2_parked_landscape
 adb shell settings put system user_rotation 0; sleep 4
 # End the paused drive, so it can be merged later on: the goodbye plays (the car's lights go out).
-tap_text "End drive now"; burst 10e_goodbye 30; alive "the goodbye"; sleep 4; shot 10f_drive_ended
+tap_text "End drive now"; burst 10e_goodbye 10; alive "the goodbye"; sleep 4; shot 10f_drive_ended
 adb shell settings put system user_rotation 1; sleep 4; shot 10f2_ended_landscape
 adb shell settings put system user_rotation 0; sleep 4
 tap_text "Stats"; sleep 2; shot 10_stats_week
