@@ -472,37 +472,43 @@ private fun valueWithUnit(value: String, unit: String): AnnotatedString = buildA
 
 // ---------------------------------------------------------------- the cloud behind the goodbye
 
-/** A faint, slowly drifting white cloud, like the glow behind a premium car's farewell screen. */
+/**
+ * A faint white glow behind the car on the goodbye, like the backlight behind a premium car's farewell:
+ * three wide, very soft clouds centred a little above the middle of what it sits behind, reaching well
+ * past its edges, drifting slowly. Drawn without blur filters: each cloud fades out over most of its radius.
+ */
 @Composable
-fun CloudBackdrop(alpha: Float, modifier: Modifier = Modifier) {
-    val t = rememberInfiniteTransition(label = "cloud")
-    val a by t.animateFloat(0f, 1f, infiniteRepeatable(tween(18_000), RepeatMode.Reverse), label = "c1")
-    val b by t.animateFloat(0f, 1f, infiniteRepeatable(tween(22_000), RepeatMode.Reverse), label = "c2")
-    val c by t.animateFloat(0f, 1f, infiniteRepeatable(tween(20_000), RepeatMode.Reverse), label = "c3")
+fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
+    val t = rememberInfiniteTransition(label = "glow")
+    val a by t.animateFloat(0f, 1f, infiniteRepeatable(tween(18_000), RepeatMode.Reverse), label = "g1")
+    val b by t.animateFloat(0f, 1f, infiniteRepeatable(tween(22_000), RepeatMode.Reverse), label = "g2")
+    val c by t.animateFloat(0f, 1f, infiniteRepeatable(tween(20_000), RepeatMode.Reverse), label = "g3")
     Canvas(modifier) {
-        if (alpha <= 0f || !Palette.isDark || size.width < 1f) return@Canvas
-        val u = 1.dp.toPx()
-        val boxW = size.width + 180 * u
-        val left = -90 * u
-        fun blob(x: Float, y: Float, w: Float, h: Float, color: Color, dx: Float, dy: Float, s: Float) {
-            val cx = left + boxW * (x + w / 2) + dx * u
-            val cy = (10 + y + h / 2) * u + dy * u
-            val rx = boxW * w / 2 * s
-            val ry = h / 2 * u * s
-            val k = rx / ry
-            scale(scaleX = k, scaleY = 1f, pivot = Offset(cx, cy)) {
+        if (alpha <= 0f || !Palette.isDark || size.width < 1f || size.height < 1f) return@Canvas
+        val w = size.width
+        val h = size.height
+        fun cloud(x: Float, y: Float, rx: Float, ry: Float, color: Color, dx: Float, dy: Float, grow: Float) {
+            val centre = Offset(w * (x + dx), h * (y + dy))
+            val radiusY = h * ry * grow
+            val k = (w * rx) / (h * ry)
+            val peak = color.alpha * alpha
+            scale(scaleX = k, scaleY = 1f, pivot = centre) {
                 drawCircle(
                     Brush.radialGradient(
-                        0f to color.copy(alpha = color.alpha * alpha), 0.55f to color.copy(alpha = color.alpha * alpha * 0.45f), 1f to Color.Transparent,
-                        center = Offset(cx, cy), radius = ry,
+                        0f to color.copy(alpha = peak),
+                        0.3f to color.copy(alpha = peak * 0.8f),
+                        0.55f to color.copy(alpha = peak * 0.45f),
+                        0.8f to color.copy(alpha = peak * 0.14f),
+                        1f to Color.Transparent,
+                        center = centre, radius = radiusY,
                     ),
-                    radius = ry, center = Offset(cx, cy),
+                    radiusY, centre,
                 )
             }
         }
-        blob(0.34f, 26f, 0.60f, 190f, Color(0xFFDEE8F6).copy(alpha = 0.10f), 18f - 48f * b, 4f - 10f * b, 1.04f - 0.08f * b)
-        blob(0.14f, 70f, 0.72f, 170f, Color(0xFFECF2FA).copy(alpha = 0.15f), -24f + 50f * a, 8f * a, 1f + 0.08f * a)
-        blob(0.04f, 130f, 0.56f, 130f, Color.White.copy(alpha = 0.08f), 22f * c, -8f * c, 0.96f + 0.10f * c)
+        cloud(0.50f, 0.44f, 0.80f, 0.98f, Color(0xFFECF2FA).copy(alpha = 0.13f), -0.03f + 0.06f * a, 0.03f * a, 1f + 0.06f * a)
+        cloud(0.63f, 0.36f, 0.62f, 0.86f, Color(0xFFDEE8F6).copy(alpha = 0.09f), 0.04f - 0.08f * b, -0.03f * b, 1.04f - 0.07f * b)
+        cloud(0.35f, 0.54f, 0.56f, 0.72f, Color.White.copy(alpha = 0.07f), 0.06f * c, -0.03f * c, 0.96f + 0.08f * c)
     }
 }
 
@@ -569,29 +575,33 @@ fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = 
 // ---------------------------------------------------------------- the car clip
 
 /**
- * Plays a short silent clip once. Its black background is added onto what is behind it (screen blend),
- * so the frame's edges disappear into the page. [onEnd] runs when it finishes or cannot play.
+ * Plays a short silent clip of the car once. On a dark page its black background is added onto what is
+ * behind it (screen blend), so the frame's edges disappear into the page. On a light page the car is cut
+ * out along its own outline instead, and stands on the page like a photograph.
+ * [onEnd] runs when it finishes or cannot play.
  */
 @Composable
 fun ClipPlayer(@RawRes res: Int, modifier: Modifier = Modifier, alpha: Float = 1f, onEnd: () -> Unit = {}) {
     val end by rememberUpdatedState(onEnd)
     val playing = remember { arrayOfNulls<ClipThread>(1) }
     val surface = remember { arrayOfNulls<Surface>(1) }
+    val dark = Palette.isDark
     fun stop() {
         playing[0]?.halt()
         playing[0] = null
         surface[0]?.let { runCatching { it.release() } }
         surface[0] = null
     }
-    fun paint(a: Float) = android.graphics.Paint().apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+    fun paint(a: Float, dark: Boolean) = android.graphics.Paint().apply {
+        if (dark) xfermode = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
         this.alpha = (a.coerceIn(0f, 1f) * 255).toInt()
     }
     AndroidView(
         factory = { ctx ->
             TextureView(ctx).apply {
                 isOpaque = false
-                setLayerPaint(paint(alpha))
+                tag = alpha to dark
+                setLayerPaint(paint(alpha, dark))
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                         val sf = Surface(st)
@@ -610,15 +620,29 @@ fun ClipPlayer(@RawRes res: Int, modifier: Modifier = Modifier, alpha: Float = 1
             }
         },
         update = { view ->
-            // Only when the opacity changes: a new paint redraws the video.
-            if (view.tag != alpha) {
-                view.tag = alpha
-                view.setLayerPaint(paint(alpha))
+            // Only when the opacity or the page changes: a new paint redraws the video.
+            if (view.tag != (alpha to dark)) {
+                view.tag = alpha to dark
+                view.setLayerPaint(paint(alpha, dark))
             }
         },
-        modifier = modifier,
+        modifier = if (dark) modifier else modifier.carCutout(),
     )
     DisposableEffect(Unit) { onDispose { stop() } }
+}
+
+/**
+ * Keeps only the car: what is drawn inside is masked by the car's silhouette, in a layer of its own.
+ * For light pages, where the clip's black background can't be blended away.
+ */
+@Composable
+private fun Modifier.carCutout(): Modifier {
+    val silhouette = androidx.compose.ui.graphics.ImageBitmap.imageResource(R.drawable.civic_silhouette)
+    return graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            drawImage(silhouette, dstSize = IntSize(size.width.toInt(), size.height.toInt()), blendMode = BlendMode.DstIn)
+        }
 }
 
 /**
@@ -709,14 +733,15 @@ class ClipThread(
     }
 }
 
-/** The car's outline with its lights off: the clip's resting frame, blended the same way. */
+/** The car's outline with its lights off: the clip's resting frame, blended or cut out the same way. */
 @Composable
 fun ClipStill(modifier: Modifier = Modifier, alpha: Float = 1f) {
     val image = androidx.compose.ui.graphics.ImageBitmap.imageResource(R.drawable.civic_outline)
-    Canvas(modifier) {
+    val dark = Palette.isDark
+    Canvas(if (dark) modifier else modifier.carCutout()) {
         drawImage(
             image, dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-            alpha = alpha.coerceIn(0f, 1f), blendMode = if (Palette.isDark) BlendMode.Screen else BlendMode.Multiply,
+            alpha = alpha.coerceIn(0f, 1f), blendMode = if (dark) BlendMode.Screen else BlendMode.SrcOver,
         )
     }
 }

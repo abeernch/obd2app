@@ -60,7 +60,6 @@ fun AppShell(
     live: LiveState,
     driveJump: Int = 0,
     jump: Pair<Tab, Int>? = null,
-    hold: Boolean = false,
     onSplashFinished: () -> Unit = {},
     screen: @Composable (Tab) -> Unit,
 ) {
@@ -73,8 +72,7 @@ fun AppShell(
     // the moment the splash starts to leave. It then rises into place while the splash fades:
     // a crossfade, never a blank frame.
     var revealed by rememberSaveable { mutableStateOf(false) }
-    // While the drive welcome plays over the app, the app waits out of sight, then rises in under it.
-    val reveal by animateFloatAsState(if (revealed && !hold) 1f else 0f, Motion.fade(480), label = "reveal")
+    val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.fade(480), label = "reveal")
     androidx.compose.runtime.LaunchedEffect(splashDone) { if (splashDone) onSplashFinished() }
 
     // On Drive, a soft lift of dark grey behind the instruments, falling to black; it fades with the tab.

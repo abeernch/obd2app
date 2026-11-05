@@ -99,10 +99,10 @@ class MainActivity : ComponentActivity() {
 
     // True when the welcome should play: a fresh start, or back after five minutes or more away.
     private var introArmed by mutableStateOf(false)
-    // The app under the welcome may rise into view (from 6.2 s into it).
-    private var introRevealed by mutableStateOf(false)
-    // When the Drive tab's cluster sweeps awake, set by the welcome.
-    private var wakeAtMs by mutableStateOf(0L)
+    // When the welcome starts on the Drive tab, once the splash has gone; 0 until then.
+    private var introStartMs by mutableStateOf(0L)
+    // How long the welcome waits first: none after the splash, a moment when coming back, for the Drive tab to settle.
+    private var introLeadMs = 0L
     // The splash has gone (or never showed), so the welcome may start.
     private var splashOver by mutableStateOf(false)
     // When the app last went out of sight; kept across rotation.
@@ -297,16 +297,20 @@ class MainActivity : ComponentActivity() {
                     introArmed = false
                 } else {
                     completed = null
-                    introRevealed = false
+                    introStartMs = 0L
                     driveJump++
                 }
             }
             val introOn = introArmed && !hud && !inPip
+            // It plays inside the Drive tab: until it starts, the cluster's place stays empty.
+            LaunchedEffect(introOn, splashOver) {
+                if (introOn && splashOver && introStartMs == 0L) introStartMs = System.currentTimeMillis() + introLeadMs
+            }
 
             // The app stays composed underneath the head-up display and the floating window, so
             // leaving either returns to the same tab, without the splash playing again.
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-            AppShell(live, driveJump, jump, hold = introOn && !introRevealed, onSplashFinished = { splashOver = true }) { tab ->
+            AppShell(live, driveJump, jump, onSplashFinished = { splashOver = true }) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
@@ -320,7 +324,15 @@ class MainActivity : ComponentActivity() {
                             openTripId = id
                             jump = Tab.Trips to ++jumpCount
                         },
-                        wakeAtMs = wakeAtMs,
+                        introAtMs = when {
+                            !introOn -> 0L
+                            introStartMs == 0L -> Long.MAX_VALUE
+                            else -> introStartMs
+                        },
+                        onIntroDone = {
+                            introArmed = false
+                            introStartMs = 0L
+                        },
                         onLocation = ::openLocation,
                     )
                     Tab.Trips -> com.abeernch.civicobd.ui.TripsScreen(
@@ -389,13 +401,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            if (introOn && splashOver) {
-                com.abeernch.civicobd.ui.DriveIntro(
-                    onReveal = { introRevealed = true },
-                    onWakeAt = { wakeAtMs = it },
-                    onDone = { introArmed = false; introRevealed = false },
-                )
-            }
             if (hud) HudScreen(live) { hud = false }
             if (inPip) com.abeernch.civicobd.ui.PipView(live)
             }
@@ -423,7 +428,10 @@ class MainActivity : ComponentActivity() {
         startServiceIfAllowed()
         checkLocationSwitch()
         // Back after five minutes or more: treat it as opening the app for a drive.
-        if (stoppedAtMs > 0 && System.currentTimeMillis() - stoppedAtMs > 5 * 60_000L) introArmed = true
+        if (stoppedAtMs > 0 && System.currentTimeMillis() - stoppedAtMs > 5 * 60_000L) {
+            introLeadMs = 450
+            introArmed = true
+        }
     }
 
     override fun onStop() {

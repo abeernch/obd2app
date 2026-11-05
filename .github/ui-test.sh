@@ -91,11 +91,12 @@ burst() {  # burst NAME COUNT
   for n in $(seq -w 1 "$2"); do adb exec-out screencap -p > "$OUT/$1_$n.png"; done
 }
 
-# 1. Cold start with the demo car switched on: the splash, the drive welcome (the car's lights come up,
-#    a greeting), then the cluster sweeping awake. Frames throughout (no screen recording here: the app is
-#    decoding its own clip, and the emulator does both in software).
+# 1. Cold start with the demo car switched on: the splash, then the drive welcome inside the Drive tab
+#    (the car's lights come up where the cluster will be, a greeting), then the cluster sweeping awake.
+#    Frames throughout (no screen recording here: the app is decoding its own clip, and the emulator does
+#    both in software).
 adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
-burst start 40
+burst start 48
 alive "the drive welcome"
 
 # 2. Let the demo drive run into the acceleration and cruise phases.
@@ -174,7 +175,8 @@ xy=$(pos_text "26"); if [ -n "$xy" ]; then set -- $xy; adb shell input tap $1 $(
 tap_text "This month"; sleep 1; tap_text "This year"; sleep 2; shot 11e_stats_year
 tap_text "Previous"; sleep 2; shot 11f_stats_prev_year
 # 30 days: too many bars to share the width, so they keep their width and the chart slides sideways.
-tap_text "This year"; sleep 1; tap_text "30 days"; sleep 2; shot 11g_stats_30_days
+tap_text "This year"; sleep 1; tap_text "30 days"; sleep 2
+adb shell input swipe 540 1600 540 1000 400; sleep 1.5; shot 11g_stats_30_days
 xy=$(pos_text "Tap a bar for its figures"); if [ -n "$xy" ]; then set -- $xy; adb shell input swipe 300 $(( $2 + 330 )) 950 $(( $2 + 330 )) 500; fi; sleep 1.5; shot 11h_stats_30_days_earlier
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
@@ -222,4 +224,11 @@ adb shell dumpsys activity services $PKG | head -40 > "$OUT/service_state.txt" |
 tap_text "Trips"; sleep 2
 tap_text "Routes"; sleep 3
 tap_text "Fuel map of all drives"; sleep 8; shot 26_fuel_map
+
+# 8. The welcome on a light page: Daylight, then a fresh start (the car stands cut out on the page).
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+tap_text "Settings"; sleep 2
+tap_text "Daylight"; sleep 2
+adb shell am force-stop $PKG; sleep 1
+adb shell am start -n $PKG/.MainActivity; burst start_light 40
 echo "done"

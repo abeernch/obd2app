@@ -128,7 +128,8 @@ fun DriveScreen(
     goodbyePending: Boolean = false,
     onGoodbyePlayed: () -> Unit = {},
     onViewDrive: (Long) -> Unit = {},
-    wakeAtMs: Long = 0L,
+    introAtMs: Long = 0L,
+    onIntroDone: () -> Unit = {},
     onLocation: () -> Unit = {},
 ) {
     val paused = live.trip.active && live.tripPaused
@@ -138,7 +139,7 @@ fun DriveScreen(
             paused -> FadeIn("parked") { ParkedView(live, today, locationOk, onHud, onLocation) }
             !live.trip.active && completed != null -> Goodbye(completed, today, onGoodbyePlayed, onViewDrive)
             !live.trip.active && goodbyePending -> Unit // the drive's figures are loading: a moment of quiet
-            else -> FadeIn("instruments") { Instruments(live, tank, settings, locationOk, onHud, wakeAtMs, onLocation) }
+            else -> FadeIn("instruments") { Instruments(live, tank, settings, locationOk, onHud, introAtMs, onIntroDone, onLocation) }
         }
     }
 }
@@ -160,7 +161,8 @@ private fun Instruments(
     settings: AppSettings,
     locationOk: Boolean,
     onHud: () -> Unit,
-    wakeAtMs: Long,
+    introAtMs: Long,
+    onIntroDone: () -> Unit,
     onLocation: () -> Unit,
 ) {
     val pager = rememberPagerState(initialPage = settings.driveView.coerceIn(0, 1)) { 2 }
@@ -168,18 +170,41 @@ private fun Instruments(
     LaunchedEffect(pager.settledPage) { settings.driveView = pager.settledPage }
     fun go(page: Int) = scope.launch { pager.animateScrollToPage(page, animationSpec = spring(dampingRatio = 0.9f, stiffness = 400f)) }
 
-    // The start-up sweep, if one is due: driven by the frame clock until it is over.
+    // The welcome plays here, in the cluster's place: the car's lights come up with a greeting, the car
+    // dissolves, and the cluster sweeps awake. [introAtMs] is when it starts (Long.MAX_VALUE: not yet, and
+    // until then the place stays empty). Driven by the frame clock until it is over; a tap skips ahead.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(wakeAtMs) {
-        if (wakeAtMs <= 0L) return@LaunchedEffect
+    var skipBy by remember(introAtMs) { mutableFloatStateOf(0f) }
+    val done by androidx.compose.runtime.rememberUpdatedState(onIntroDone)
+    LaunchedEffect(introAtMs) {
+        if (introAtMs <= 0L) return@LaunchedEffect
+        pager.scrollToPage(0)
+        if (introAtMs == Long.MAX_VALUE) return@LaunchedEffect
+        while ((System.currentTimeMillis() - introAtMs) / 1000f + skipBy < INTRO_END) withFrameNanos { now = System.currentTimeMillis() }
         now = System.currentTimeMillis()
-        val lead = wakeAtMs - now
-        if (lead > 0) delay(lead) // until then the cluster rests in its pre-sweep look
-        while (System.currentTimeMillis() < wakeAtMs + 1_700) withFrameNanos { now = System.currentTimeMillis() }
-        now = System.currentTimeMillis()
+        done()
     }
-    val wake = if (wakeAtMs > 0L && now < wakeAtMs + 1_700) (now - wakeAtMs) / 1000f else null
+    // Leaving the screen part-way through ends the welcome, rather than replaying it from the middle later.
+    val running by androidx.compose.runtime.rememberUpdatedState(introAtMs > 0L && introAtMs != Long.MAX_VALUE)
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { if (running) done() } }
+    val t = when {
+        introAtMs <= 0L -> null
+        introAtMs == Long.MAX_VALUE -> -1f
+        else -> (now - introAtMs) / 1000f + skipBy
+    }
+    val introShown = t != null && t < 7.4f
+    val wake = if (t != null && t < INTRO_END) t - 7.6f else null
+    val clusterIn = if (t == null) 1f else span(t, 6.9f, 7.6f)
+    val skip = {
+        if (t != null && t in 0f..6.6f) skipBy += 6.6f - t
+    }
     val state = clusterState(live, tank, settings)
+    val clusterArea: @Composable (Modifier) -> Unit = { m ->
+        Box(m) {
+            DriveCluster(state, Modifier.fillMaxSize().graphicsLayer { alpha = clusterIn }, wake)
+            if (t != null && t >= 0f && t < 7.4f) IntroStage(t, Modifier.fillMaxSize(), skip)
+        }
+    }
     val position = pager.currentPage + pager.currentPageOffsetFraction
     val switch: @Composable (Modifier) -> Unit = { m ->
         ViewSwitch(listOf("GAUGES", "MAP"), listOf(LuxIcon.Gauges, LuxIcon.Map), position, m) { go(it) }
@@ -196,12 +221,12 @@ private fun Instruments(
                     state = pager,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     // On the map, sideways drags pan the map; the switch brings the gauges back.
-                    userScrollEnabled = pager.settledPage == 0,
+                    userScrollEnabled = pager.settledPage == 0 && !introShown,
                     beyondViewportPageCount = 1,
                 ) { page ->
                     if (page == 0) {
                         Column(Modifier.fillMaxSize()) {
-                            DriveCluster(state, Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp), wake)
+                            clusterArea(Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp))
                             InfoStrip(live, Modifier.padding(horizontal = 20.dp))
                             Spacer(Modifier.height(22.dp))
                         }
@@ -217,10 +242,10 @@ private fun Instruments(
                 HorizontalPager(
                     state = pager,
                     modifier = Modifier.weight(1.15f).fillMaxHeight(),
-                    userScrollEnabled = pager.settledPage == 0,
+                    userScrollEnabled = pager.settledPage == 0 && !introShown,
                     beyondViewportPageCount = 1,
                 ) { page ->
-                    if (page == 0) DriveCluster(state, Modifier.fillMaxSize().padding(vertical = 6.dp), wake)
+                    if (page == 0) clusterArea(Modifier.fillMaxSize().padding(vertical = 6.dp))
                     else MapPane(live, settings, locationOk, overlay = false, Modifier.fillMaxSize().padding(12.dp))
                 }
                 Column(Modifier.weight(1f).fillMaxHeight().padding(end = 20.dp, top = 10.dp, bottom = 12.dp)) {
@@ -628,7 +653,20 @@ private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onV
 
     val car: @Composable (Modifier) -> Unit = { m ->
         Box(m.fillMaxWidth().aspectRatio(2f)) {
-            if (playing && t < 6.5f) ClipPlayer(R.raw.civic_end, Modifier.fillMaxSize(), alpha = span(t, 0.15f, 0.8f))
+            // A soft white glow, wider than the car and drifting slowly...
+            CarGlow(span(t, 0.4f, 3.6f, LinearEasing), Modifier.matchParentSize())
+            // ...kept behind it by the car's own shape in black, so it never hazes over the car.
+            val carIn = span(t, 0.15f, 0.8f)
+            if (Palette.isDark) {
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(R.drawable.civic_silhouette), null,
+                    Modifier.matchParentSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.Black),
+                    alpha = carIn,
+                )
+            }
+            if (playing && t < 6.5f) ClipPlayer(R.raw.civic_end, Modifier.fillMaxSize(), alpha = carIn)
             else ClipStill(Modifier.fillMaxSize())
         }
     }
@@ -696,7 +734,6 @@ private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onV
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        CloudBackdrop(span(t, 0.4f, 3.6f, LinearEasing), Modifier.fillMaxWidth().height(440.dp))
         if (maxWidth <= maxHeight) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.weight(0.35f))
@@ -725,17 +762,19 @@ private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onV
     }
 }
 
-// ---------------------------------------------------------------- the start: the car's lights come up, a greeting, then the cluster wakes
+// ---------------------------------------------------------------- the welcome, inside the Drive screen
+
+/** How long the welcome runs, in seconds: the car and greeting, the dissolve, then the cluster's sweep. */
+private const val INTRO_END = 9.3f
 
 /**
- * Full-screen welcome, played when the app is opened for a drive: the car clip, a greeting, then a fade
- * into the Drive tab, where the cluster sweeps awake. A tap skips to the end.
- * [onWakeAt] gives the time the cluster's sweep should start; [onReveal] lets the app appear underneath.
+ * The car clip and a greeting, where the cluster will be. Its lights come up, "Good evening" and
+ * "Ready to drive" appear, then it dissolves as the cluster sweeps awake. A tap skips to the dissolve.
+ * The car takes the full width where there is room, and shrinks to keep the greeting in view where not.
  */
 @Composable
-fun DriveIntro(onReveal: () -> Unit, onWakeAt: (Long) -> Unit, onDone: () -> Unit) {
-    var t by remember { mutableFloatStateOf(0f) }
-    var skipBy by remember { mutableFloatStateOf(0f) }
+private fun IntroStage(t: Float, modifier: Modifier, onSkip: () -> Unit) {
+    val skipNow by androidx.compose.runtime.rememberUpdatedState(onSkip)
     val greeting = remember {
         when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
             in 5..11 -> "Good morning"
@@ -743,62 +782,42 @@ fun DriveIntro(onReveal: () -> Unit, onWakeAt: (Long) -> Unit, onDone: () -> Uni
             else -> "Good evening"
         }
     }
-    LaunchedEffect(Unit) {
-        onWakeAt(System.currentTimeMillis() + 7_600)
-        val start = withFrameNanos { it }
-        var revealed = false
-        while (t < 7.4f) {
-            withFrameNanos { n -> t = (n - start) / 1e9f + skipBy }
-            if (!revealed && t >= 6.2f) {
-                revealed = true
-                onReveal()
-            }
-        }
-        onDone()
-    }
     val out = span(t, 6.6f, 7.4f)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = 1f - out }
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures {
-                    if (t < 6.6f) {
-                        skipBy += 6.6f - t
-                        onWakeAt(System.currentTimeMillis() + 1_000)
-                    }
-                }
-            }
+    Column(
+        modifier
+            .pointerInput(Unit) { detectTapGestures { skipNow() } }
             .semantics { contentDescription = "Welcome. Tap to skip" },
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f)
-                    .graphicsLayer {
-                        val k = 1f - 0.04f * out
-                        scaleX = k
-                        scaleY = k
-                    }
-            ) { ClipPlayer(R.raw.civic_start, Modifier.fillMaxSize()) }
-            Spacer(Modifier.height(30.dp))
-            val g = span(t, 4.4f, 5.4f, SoftEase)
-            Text(greeting, style = lux(28.sp, FontWeight.ExtraLight, Color(0xFFECEEF1), (10f - 6f * g).sp), modifier = Modifier.graphicsLayer { alpha = g })
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "READY TO DRIVE",
-                style = lux(10.5.sp, FontWeight.Normal, lerpSoft(), 4.sp),
-                modifier = Modifier.offset(x = 2.dp).graphicsLayer { alpha = span(t, 5.0f, 5.6f) },
-            )
-        }
+        // Faded through the video's own layer, not a layer of ours, so on a dark page its black stays see-through.
+        Box(
+            Modifier
+                .weight(1f, fill = false)
+                .aspectRatio(2f)
+                .graphicsLayer {
+                    val k = 1f - 0.04f * out
+                    scaleX = k
+                    scaleY = k
+                }
+        ) { ClipPlayer(R.raw.civic_start, Modifier.fillMaxSize(), alpha = 1f - out) }
+        Spacer(Modifier.height(22.dp))
+        val g = span(t, 4.4f, 5.4f, SoftEase)
+        Text(
+            greeting,
+            style = lux(28.sp, FontWeight.ExtraLight, Lux.Txt, (10f - 6f * g).sp),
+            maxLines = 1,
+            modifier = Modifier.graphicsLayer { alpha = g * (1f - out) },
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "READY TO DRIVE",
+            style = lux(10.5.sp, FontWeight.Normal, Lux.GoldSoft, 4.sp),
+            maxLines = 1,
+            modifier = Modifier.offset(x = 2.dp).graphicsLayer { alpha = span(t, 5.0f, 5.6f) * (1f - out) },
+        )
     }
 }
-
-/** The accent's soft tint, for use on black whatever the theme. */
-private fun lerpSoft(): Color = androidx.compose.ui.graphics.lerp(Palette.Accent, Color.White, 0.36f)
 
 // ---------------------------------------------------------------- kept for the Trips tab, HUD and floating window
 
