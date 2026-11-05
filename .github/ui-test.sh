@@ -173,6 +173,9 @@ xy=$(pos_text "26"); if [ -n "$xy" ]; then set -- $xy; adb shell input tap $1 $(
 # Year view: twelve months, a step back to last year.
 tap_text "This month"; sleep 1; tap_text "This year"; sleep 2; shot 11e_stats_year
 tap_text "Previous"; sleep 2; shot 11f_stats_prev_year
+# 30 days: too many bars to share the width, so they keep their width and the chart slides sideways.
+tap_text "This year"; sleep 1; tap_text "30 days"; sleep 2; shot 11g_stats_30_days
+xy=$(pos_text "Tap a bar for its figures"); if [ -n "$xy" ]; then set -- $xy; adb shell input swipe 300 $(( $2 + 330 )) 950 $(( $2 + 330 )) 500; fi; sleep 1.5; shot 11h_stats_30_days_earlier
 adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
 scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel

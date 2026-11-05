@@ -92,7 +92,7 @@ object Windows {
                 // A day is charted by hour.
                 val hours = (0 until 24).map { h ->
                     val a = start + h * 3_600_000L
-                    Slot(a, a + 3_600_000L, if (h % 6 == 0) "%02d".format(h) else "", "%02d:00 to %02d:00".format(h, (h + 1) % 24))
+                    Slot(a, a + 3_600_000L, "%02d".format(h), "%02d:00 to %02d:00".format(h, (h + 1) % 24))
                 }
                 Window(start, end, fmt("EEEE, d MMM yyyy", start), hours, true)
             }
@@ -136,11 +136,7 @@ object Windows {
         return (0 until n).map { i ->
             val a = c.plus(Calendar.DAY_OF_MONTH, i)
             val b = c.plus(Calendar.DAY_OF_MONTH, i + 1)
-            val label = when {
-                weekdays -> fmt("EEE", a)
-                n <= 16 || i % 5 == 0 -> fmt("d", a)
-                else -> ""
-            }
+            val label = if (weekdays) fmt("EEE", a) else fmt("d", a)
             Slot(a, b, label, fmt("EEE d MMM", a))
         }
     }
@@ -152,7 +148,7 @@ object Windows {
         var i = 0
         while (a < end) {
             val b = minOf(c.plus(Calendar.DAY_OF_MONTH, 7 * (i + 1)), end)
-            out += Slot(a, b, if (i % 3 == 0) fmt("d MMM", a) else "", span(a, b))
+            out += Slot(a, b, fmt("d MMM", a), span(a, b))
             a = b; i++
         }
         return out
@@ -163,7 +159,7 @@ object Windows {
         return (0 until n).map { i ->
             val a = c.plus(Calendar.MONTH, i)
             val b = c.plus(Calendar.MONTH, i + 1)
-            Slot(a, b, fmt("MMM", a).take(if (n > 12) 1 else 3), fmt("MMMM yyyy", a))
+            Slot(a, b, fmt("MMM", a), fmt("MMMM yyyy", a))
         }
     }
 }

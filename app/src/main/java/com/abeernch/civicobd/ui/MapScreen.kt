@@ -176,13 +176,11 @@ private class RouteOverlay(
             fill.color = if (h.g < 0) 0xFFE5484D.toInt() else 0xFFF5C542.toInt()
             canvas.drawCircle(p0.x.toFloat(), p0.y.toFloat(), 5f * density, fill)
         }
-        // Start: ring in the accent colour. End: solid accent dot.
+        // Start: a green disc. Finish: a chequered flag badge, drawn last so it sits on top of a round trip's start.
         proj.toPixels(GeoPoint(points.first().lat, points.first().lon), p0)
-        ring.color = accent; ring.strokeWidth = 3f * density
-        canvas.drawCircle(p0.x.toFloat(), p0.y.toFloat(), 8f * density, ring)
+        RouteMarkers.drawStart(canvas, p0.x.toFloat(), p0.y.toFloat(), density)
         proj.toPixels(GeoPoint(points.last().lat, points.last().lon), p0)
-        fill.color = accent
-        canvas.drawCircle(p0.x.toFloat(), p0.y.toFloat(), 7f * density, fill)
+        RouteMarkers.drawFinish(canvas, p0.x.toFloat(), p0.y.toFloat(), density)
 
         // Selected point
         selected?.let { i ->

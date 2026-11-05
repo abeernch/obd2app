@@ -202,6 +202,8 @@ class CoreTest {
         // Months by name, stepping back across a year end.
         assertEquals("October 2026", W.of(com.abeernch.civicobd.core.Period.Month, 0, now).title)
         assertEquals(31, W.of(com.abeernch.civicobd.core.Period.Month, 0, now).slots.size)
+        // Every day is named: the wider bars leave room, and the chart thins the dates only if they collide.
+        assertEquals(listOf("1", "2", "3"), W.of(com.abeernch.civicobd.core.Period.Month, 0, now).slots.take(3).map { it.label })
         assertEquals("September 2026", W.of(com.abeernch.civicobd.core.Period.Month, -1, now).title)
         assertEquals(30, W.of(com.abeernch.civicobd.core.Period.Month, -1, now).slots.size)
         assertEquals("December 2025", W.of(com.abeernch.civicobd.core.Period.Month, -10, now).title)

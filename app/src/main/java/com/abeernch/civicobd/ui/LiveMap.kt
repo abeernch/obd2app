@@ -143,6 +143,9 @@ private class TrailOverlay(
                 canvas.drawLine(p0.x.toFloat(), p0.y.toFloat(), p1.x.toFloat(), p1.y.toFloat(), line)
                 p0.set(p1.x, p1.y)
             }
+            // Where this drive began; the car itself marks where it is now.
+            proj.toPixels(GeoPoint(trail[0].lat, trail[0].lon), p0)
+            RouteMarkers.drawStart(canvas, p0.x.toFloat(), p0.y.toFloat(), density)
         }
 
         val pos = position ?: return

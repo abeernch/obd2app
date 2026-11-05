@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -166,9 +167,11 @@ private fun valueOf(s: Summary, m: Metric): Double? = when (m) {
 }
 
 /**
- * One bar per day (or hour, week, month) of the period, empty ones included. Tapping a bar selects
- * it: a soft column of the accent colour rises behind it, brightest at the base, the other bars dim,
- * and its date and figures show above the chart. Tapping it again clears the selection.
+ * One bar per day (or hour, week, month) of the period, empty ones included. When they all fit, they share
+ * the width; when there are too many (a month of days, a day of hours), each keeps a comfortable width and
+ * the chart, with its dates, slides sideways. It opens on the latest bar, and the edges fade while there is
+ * more to either side. Tapping a bar selects it: a soft column of the accent colour rises behind it, the
+ * other bars dim, and its date and figures show above the chart. Tapping it again clears the selection.
  */
 @Composable
 private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<TripRow>, metric: Metric, selected: Int?, onSelect: (Int) -> Unit) {
@@ -179,10 +182,9 @@ private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<
     val decimals = if (metric == Metric.Cost) 0 else 1
     val now = System.currentTimeMillis()
     val current = slots.indexOfFirst { now >= it.startMs && now < it.endMs }
-    val gap = if (slots.size > 16) 2.dp else 6.dp
 
     Column(Modifier.padding(horizontal = 20.dp)) {
-        // Readout: the selected bar, or the period as a whole.
+        // Readout: the selected bar, or the period as a whole. It stays put while the bars slide.
         val sel = selected?.let { slots.getOrNull(it) }
         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             if (sel != null) {
@@ -200,83 +202,121 @@ private fun SlotChart(slots: List<com.abeernch.civicobd.core.Slot>, trips: List<
                 Text("Tap a bar for its figures", style = Type.label)
             }
         }
-        Row(
-            Modifier.fillMaxWidth().height(chartHeight + 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(gap),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            slots.forEachIndexed { index, _ ->
-                val value = values[index]
-                val target = chartHeight * ((value ?: 0.0) / max).toFloat().coerceIn(0f, 1f)
-                val barHeight by animateDpAsState(target, Motion.glide(), label = "bar")
-                val on = index == selected
-                val glow by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, Motion.fade(260), label = "glow")
-                val accent = Palette.Accent
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        // The selection column, drawn behind without clipping, so the value above
-                        // the bar can be wider than the bar's own narrow column.
-                        .drawBehind {
-                            drawRoundRect(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    listOf(accent.copy(alpha = 0f), accent.copy(alpha = 0.10f * glow), accent.copy(alpha = 0.26f * glow))
-                                ),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
-                            )
-                        }
-                        .pressable { onSelect(index) },
-                    contentAlignment = Alignment.BottomCenter,
-                ) {
-                    val color = when {
-                        on -> Palette.Accent
-                        selected != null -> Palette.Value.copy(alpha = 0.28f)
-                        index == current -> Palette.Accent
-                        else -> Palette.Value.copy(alpha = 0.85f)
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (on && value != null) {
-                            Text(
-                                fmt(value, decimals),
-                                style = Type.label.copy(fontSize = Type.sz(12f), color = Palette.Accent),
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.wrapContentWidth(unbounded = true),
-                            )
-                            Spacer(Modifier.height(3.dp))
-                        }
-                        // Slim bars, never wider than 26 dp; an empty day keeps a faint stub.
-                        Box(
-                            Modifier
-                                .widthIn(max = 26.dp)
-                                .fillMaxWidth()
-                                .height(if (value == null) 2.dp else barHeight.coerceAtLeast(3.dp))
-                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                .background(if (value == null) Palette.Hairline else color)
-                        )
-                    }
-                    // A short accent line under the selected bar.
-                    if (on) Box(Modifier.fillMaxWidth().height(3.dp).background(accent))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val n = slots.size.coerceAtLeast(1)
+            val share = maxWidth / n
+            // Too many to share the width at a readable size: each bar keeps its own width and the chart slides.
+            val scrolling = share < 26.dp
+            val slot = if (scrolling) 34.dp else share
+            val bar = (slot * 0.74f).coerceAtMost(32.dp)
+            val content = slot * n
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val labelStyle = Type.label.copy(fontSize = Type.sz(12f))
+            // Thin the dates only where they would run into each other.
+            val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+            val widest = remember(slots, labelStyle) { slots.maxOfOrNull { measurer.measure(it.label, labelStyle).size.width } ?: 0 }
+            val every = with(density) { kotlin.math.ceil((widest + 6.dp.toPx()) / slot.toPx()).toInt().coerceAtLeast(1) }
+            val scroll = rememberScrollState()
+            val viewport = maxWidth
+            // Open on the latest: today's bar near the right edge, or the period's last bar.
+            LaunchedEffect(slots.firstOrNull()?.startMs, slots.size, scrolling) {
+                if (!scrolling) return@LaunchedEffect
+                with(density) {
+                    val maxScroll = (content - viewport).toPx().coerceAtLeast(0f)
+                    val target = if (current >= 0) (slot * (current + 2) - viewport).toPx() else maxScroll
+                    scroll.scrollTo(target.coerceIn(0f, maxScroll).toInt())
                 }
             }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-            slots.forEachIndexed { index, sl ->
-                Text(
-                    sl.label,
-                    style = Type.label.copy(
-                        fontSize = Type.sz(12f),
-                        color = if (index == selected) Palette.Accent else Palette.Label,
-                    ),
-                    // Narrow day columns (a month has 31): the label may spill into the empty columns beside it.
-                    modifier = Modifier.weight(1f).wrapContentWidth(unbounded = true),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+            Box(Modifier.fillMaxWidth()) {
+                Column(if (scrolling) Modifier.horizontalScroll(scroll) else Modifier) {
+                    Row(Modifier.width(content).height(chartHeight + 20.dp), verticalAlignment = Alignment.Bottom) {
+                        slots.forEachIndexed { index, _ ->
+                            val value = values[index]
+                            val target = chartHeight * ((value ?: 0.0) / max).toFloat().coerceIn(0f, 1f)
+                            val barHeight by animateDpAsState(target, Motion.glide(), label = "bar")
+                            val on = index == selected
+                            val glow by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, Motion.fade(260), label = "glow")
+                            val accent = Palette.Accent
+                            Box(
+                                Modifier
+                                    .width(slot)
+                                    .fillMaxHeight()
+                                    // The selection column, drawn behind without clipping, so the value above
+                                    // the bar can be wider than the bar itself.
+                                    .drawBehind {
+                                        drawRoundRect(
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                listOf(accent.copy(alpha = 0f), accent.copy(alpha = 0.10f * glow), accent.copy(alpha = 0.26f * glow))
+                                            ),
+                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                                        )
+                                    }
+                                    .pressable { onSelect(index) },
+                                contentAlignment = Alignment.BottomCenter,
+                            ) {
+                                val color = when {
+                                    on -> Palette.Accent
+                                    selected != null -> Palette.Value.copy(alpha = 0.28f)
+                                    index == current -> Palette.Accent
+                                    else -> Palette.Value.copy(alpha = 0.85f)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    if (on && value != null) {
+                                        Text(
+                                            fmt(value, decimals),
+                                            style = Type.label.copy(fontSize = Type.sz(12f), color = Palette.Accent),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = Modifier.wrapContentWidth(unbounded = true),
+                                        )
+                                        Spacer(Modifier.height(3.dp))
+                                    }
+                                    // An empty day keeps a faint stub.
+                                    Box(
+                                        Modifier
+                                            .width(bar)
+                                            .height(if (value == null) 2.dp else barHeight.coerceAtLeast(3.dp))
+                                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                            .background(if (value == null) Palette.Hairline else color)
+                                    )
+                                }
+                                // A short accent line under the selected bar.
+                                if (on) Box(Modifier.width(bar).height(3.dp).background(accent))
+                            }
+                        }
+                    }
+                    Box(Modifier.width(content).height(1.dp).background(Palette.Hairline))
+                    Spacer(Modifier.height(6.dp))
+                    Row(Modifier.width(content)) {
+                        slots.forEachIndexed { index, sl ->
+                            Text(
+                                if (index % every == 0) sl.label else "",
+                                style = labelStyle.copy(color = if (index == selected) Palette.Accent else Palette.Label),
+                                modifier = Modifier.width(slot).wrapContentWidth(unbounded = true),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                }
+                // Soft fades at the edges while there is more to slide to.
+                if (scrolling) {
+                    val bg = Palette.Background
+                    val fade = 28.dp
+                    if (scroll.canScrollBackward) {
+                        Box(
+                            Modifier.matchParentSize().wrapContentWidth(Alignment.Start).width(fade)
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(bg, bg.copy(alpha = 0f))))
+                        )
+                    }
+                    if (scroll.canScrollForward) {
+                        Box(
+                            Modifier.matchParentSize().wrapContentWidth(Alignment.End).width(fade)
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(bg.copy(alpha = 0f), bg)))
+                        )
+                    }
+                }
             }
         }
     }
