@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.abeernch.civicobd.core.LiveState
 import com.abeernch.civicobd.core.Summary
 
@@ -121,11 +122,14 @@ internal fun FaultCodes(connected: Boolean) {
         } else {
             ReadingRow("Last read", java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.US).format(java.util.Date(diag.readAtMs)))
         }
+        if (diag.demo && (diag.stored.isNotEmpty() || diag.pending.isNotEmpty())) {
+            Text("From the demo car, not your Civic.", style = Type.label.copy(color = Palette.Caution), modifier = Modifier.padding(vertical = 4.dp))
+        }
         if (diag.stored.isEmpty() && diag.pending.isEmpty() && diag.readAtMs > 0) {
             ReadingRow("Stored codes", "none")
         }
-        diag.stored.forEach { CodeRow(it, Palette.Warning, "stored") }
-        diag.pending.forEach { CodeRow(it, Palette.Caution, "pending") }
+        diag.stored.forEach { CodeRow(it, Palette.Warning, "stored", diag.demo) }
+        diag.pending.forEach { CodeRow(it, Palette.Caution, "pending", diag.demo) }
         if (diag.freezeFrame.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text("Freeze frame" + (diag.freezeCode?.let { ", saved with $it" } ?: ""), style = Type.section)
@@ -177,12 +181,22 @@ internal fun FaultCodes(connected: Boolean) {
 }
 
 @Composable
-private fun CodeRow(dtc: com.abeernch.civicobd.core.Dtc, color: androidx.compose.ui.graphics.Color, kind: String) {
+private fun CodeRow(dtc: com.abeernch.civicobd.core.Dtc, color: androidx.compose.ui.graphics.Color, kind: String, demo: Boolean = false) {
     androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(dtc.code, style = Type.value.copy(fontSize = Type.sz(28f), color = color))
             Spacer(Modifier.width(12.dp))
             Text(kind, style = Type.label.copy(color = color))
+            if (demo) {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "DEMO",
+                    style = Type.label.copy(color = Palette.Label, letterSpacing = 1.5.sp),
+                    modifier = Modifier
+                        .border(1.dp, Palette.Hairline, androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
         }
         Text(dtc.description, style = Type.body)
     }

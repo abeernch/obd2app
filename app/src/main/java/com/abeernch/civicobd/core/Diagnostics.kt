@@ -18,6 +18,7 @@ data class DiagState(
     val readAtMs: Long = 0,
     val busy: Boolean = false,
     val message: String? = null,
+    val demo: Boolean = false,                 // read from the demo car, not from this car
 )
 
 enum class DiagRequest { Read, Clear }

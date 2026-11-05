@@ -71,6 +71,9 @@ fun CarScreen(
         val mil = live.monitors?.mil == true
         val due = statuses.filter { it.overdue || it.soon }
         val alert = when {
+            // The demo car's code is said to be the demo's, so it is never taken for this car's.
+            diag.demo && diag.stored.isNotEmpty() ->
+                "Demo car, not your Civic: ${diag.stored.first().code}, ${diag.stored.first().description}" to Palette.Caution
             mil || diag.stored.isNotEmpty() ->
                 "Check-engine light" + (diag.stored.firstOrNull()?.let { ": ${it.code}, ${it.description}" } ?: " is on") to Palette.Warning
             diag.pending.isNotEmpty() -> "Pending fault code ${diag.pending.first().code}: ${diag.pending.first().description}" to Palette.Caution

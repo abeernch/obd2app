@@ -176,6 +176,8 @@ class ObdService : Service() {
                 } catch (e: Exception) {
                     LiveBus.log("Demo: ${e.message}")
                 }
+                // The demo car's fault codes are not this car's: once the demo is off, they go.
+                if (!settings.demo && Diagnostics.state.value.demo) Diagnostics.publish { com.abeernch.civicobd.core.DiagState() }
                 delay(1_000)
                 continue
             }
@@ -453,7 +455,7 @@ class ObdService : Service() {
             val reply = elm.send("04", timeoutMs = 5000)
             val ok = reply.lines.any { it.startsWith("44") }
             LiveBus.log(if (ok) "Fault codes cleared" else "Clear failed: ${reply.error ?: reply.text}")
-            events.add("dtc_clear", null, null, if (ok) "cleared" else "failed")
+            if (!settings.demo) events.add("dtc_clear", null, null, if (ok) "cleared" else "failed")
             readDiagnostics(elm, suffix)
             Diagnostics.publish { it.copy(message = if (ok) "Codes cleared. The check-engine light goes off now." else "The car refused to clear the codes.") }
             readMonitors(elm, suffix)
@@ -485,11 +487,12 @@ class ObdService : Service() {
             frame = values
         }
         val known = Diagnostics.state.value.stored.map { it.code }.toSet()
-        stored.filter { it.code !in known }.forEach { events.add("dtc", null, null, it.code) }
+        // The car's own record of fault codes: the demo car's are left out.
+        if (!settings.demo) stored.filter { it.code !in known }.forEach { events.add("dtc", null, null, it.code) }
         Diagnostics.publish {
             it.copy(
                 stored = stored, pending = pending, freezeFrame = frame, freezeCode = frameCode,
-                readAtMs = System.currentTimeMillis(), busy = false,
+                readAtMs = System.currentTimeMillis(), busy = false, demo = settings.demo,
                 message = if (stored.isEmpty() && pending.isEmpty()) "No fault codes." else it.message,
             )
         }

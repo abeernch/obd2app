@@ -80,6 +80,15 @@ scroll_tap() {
   echo "NOT FOUND after scrolling: '$1'"; return 1
 }
 
+# Scrolls down (up to 16 swipes) until the text is on screen, without tapping it.
+scroll_to() {
+  for n in $(seq 1 16); do
+    if [ -n "$(pos_text "$1")" ]; then echo "found '$1' after $n looks"; return 0; fi
+    adb shell input swipe 540 1600 540 900 300; sleep 0.8
+  done
+  echo "NOT FOUND after scrolling: '$1'"; return 1
+}
+
 # Finds an element's centre without tapping it.
 pos_text() {
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
@@ -179,6 +188,9 @@ burst 10g_back_after_goodbye 16
 # The demo car stays off for the rest of the walkthrough.
 tap_text "Settings"; sleep 2
 scroll_tap "Stop demo drive"; sleep 3
+# With the demo off, its fault code is gone from the Car tab: no alert line, codes not yet read.
+tap_text "Car"; sleep 2; shot 10h_car_after_demo
+scroll_to "Fault codes"; adb shell input swipe 540 1500 540 1100 300; sleep 1.5; shot 10i_codes_after_demo
 tap_text "Stats"; sleep 2; shot 10_stats_week
 # The period is a menu now: open it, then pick Today.
 tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu
