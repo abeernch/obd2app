@@ -109,8 +109,17 @@ jobs:
         run: |
           mkdir -p ui-test
           cp ui-test-run.log ui-test/run_log.txt || true
+          # Each burst of frames goes up as one archive: a few hundred separate uploads in a row can trip
+          # GitHub's limit on uploads, and the release then fails to publish.
+          (cd ui-test && for b in $(ls *.png 2>/dev/null | sed -nE 's/^(.*)_[0-9]+\.png$/\1/p' | sort -u); do
+            zip -q -m "burst_$b.zip" "$b"_[0-9]*.png
+          done)
           ls -la ui-test
-          gh release delete ui-test --yes --cleanup-tag || true
-          gh release create ui-test $(find ui-test -maxdepth 1 -type f -size +0) \
-            --prerelease --title "UI test ${{ github.run_number }}" \
-            --notes "Emulator run of ${{ github.sha }}."
+          publish() {
+            gh release delete ui-test --yes --cleanup-tag || true
+            gh release create ui-test $(find ui-test -maxdepth 1 -type f -size +0) \
+              --prerelease --title "UI test ${{ github.run_number }}" \
+              --notes "Emulator run of ${{ github.sha }}."
+          }
+          for attempt in 1 2 3; do publish && exit 0; echo "publish failed, attempt $attempt"; sleep 120; done
+          exit 1
