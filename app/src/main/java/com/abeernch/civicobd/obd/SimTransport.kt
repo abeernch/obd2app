@@ -15,6 +15,11 @@ import kotlin.math.sin
  */
 class SimTransport : Transport {
 
+    companion object {
+        /** Test build: the demo car's ignition is off. The adapter still answers; the engine computer is silent. */
+        @Volatile var ignitionOff = false
+    }
+
     private val startMs = System.currentTimeMillis()
     private val pending = ArrayDeque<Int>()
     private var readyAt = 0L
@@ -70,10 +75,16 @@ class SimTransport : Transport {
                 cmd == "ATI" -> "ELM327 v2.1 (simulated)"
                 cmd == "ATDPN" -> "A3"
                 cmd == "ATDP" -> "AUTO, ISO 9141-2"
-                cmd == "ATRV" -> if (state().rpm > 0) "14.1V" else "12.5V"
+                cmd == "ATRV" -> when {
+                    ignitionOff -> "12.4V"
+                    state().rpm > 0 -> "14.1V"
+                    else -> "12.5V"
+                }
                 else -> "OK"
             }
         }
+        // Ignition off: the engine computer is unpowered and says nothing.
+        if (ignitionOff) return "NO DATA"
         // Fault codes: one harmless stored code (P0456, small evaporative leak) until it is cleared.
         when (cmd) {
             "03" -> return if (codeStored) "430456000000" else "430000000000"

@@ -17,6 +17,8 @@ android {
         versionCode = (System.getenv("BUILD_NUMBER") ?: "1").toInt()
         versionName = "1.0." + (System.getenv("BUILD_NUMBER") ?: "1")
         buildConfigField("boolean", "TEST_HOOKS", "false")
+        // How long a parked drive waits for the engine to start again before it is ended.
+        buildConfigField("long", "PARK_MS", "600000L")
     }
 
     // One fixed key, so a new APK installs over the old one without uninstalling.
@@ -49,6 +51,8 @@ android {
             initWith(getByName("debug"))
             signingConfig = signingConfigs.getByName("personal")
             buildConfigField("boolean", "TEST_HOOKS", "true")
+            // 100 s instead of 10 minutes, so the walkthrough can watch a countdown run out.
+            buildConfigField("long", "PARK_MS", "100000L")
             matchingFallbacks += listOf("debug")
         }
     }

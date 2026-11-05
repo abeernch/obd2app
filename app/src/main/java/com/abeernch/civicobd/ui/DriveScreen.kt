@@ -106,7 +106,7 @@ fun heroReading(live: LiveState): HeroReading {
 /** A drive that has just ended, for the goodbye on the Drive tab. */
 data class CompletedDrive(val summary: TripSummary, val route: RouteContext?, val played: Boolean = false)
 
-private const val CONTINUE_MS = 10 * 60_000L
+private val CONTINUE_MS = com.abeernch.civicobd.BuildConfig.PARK_MS
 private val SoftEase = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
 private val WipeEase = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 
@@ -544,6 +544,13 @@ private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onH
     val time = "%d:%02d".format(left / 60_000, left / 1_000 % 60)
     val t = live.trip
     val kml = t.kmPerL
+    // The moment of parking: PARKED is revealed by light, the ring sweeps round to the time left, then the
+    // drive's figures and the controls arrive.
+    val enter = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { enter.animateTo(2.2f, tween(2_200, easing = LinearEasing)) }
+    val e = enter.value
+    val figuresIn = span(e, 1.05f, 1.75f, SoftEase)
+    val controlsIn = span(e, 1.4f, 2.1f)
     val figures: @Composable (Modifier) -> Unit = { m ->
         Readouts(
             listOf(
@@ -552,14 +559,25 @@ private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onH
                 Readout("KM/L", kml?.let { fmt(it) } ?: "–", "", Lux.eco(kml)),
                 Readout("COST", "Rs " + "%,d".format((t.fuelL * live.fuelPrice).roundToInt())),
             ),
-            m, size = 22.sp,
+            m.graphicsLayer { alpha = figuresIn; translationY = (1f - figuresIn) * 10.dp.toPx() }, size = 22.sp,
         )
     }
     val word: @Composable () -> Unit = {
-        Text("PARKED", style = lux(28.sp, FontWeight.ExtraLight, Lux.Txt, 8.sp), modifier = Modifier.padding(start = 8.dp))
+        RevealTitle(
+            "PARKED",
+            reveal = span(e, 0f, 0.9f, WipeEase),
+            sheen = span(e, 0.35f, 1.9f, LinearEasing),
+            modifier = Modifier.padding(start = 8.dp).width(260.dp).height(44.dp),
+            fontSize = 28.sp,
+            spacing = 8.sp,
+        )
     }
-    val end: @Composable (Modifier) -> Unit = { m -> SlantWide("END DRIVE NOW", m) { LiveBus.requestEndDrive() } }
-    val tiles: @Composable (Modifier) -> Unit = { m -> ControlTiles(live, locationOk, onHud, onLocation, onGpsOn = {}, modifier = m) }
+    val end: @Composable (Modifier) -> Unit = { m -> SlantWide("END DRIVE NOW", m.graphicsLayer { alpha = controlsIn }) { LiveBus.requestEndDrive() } }
+    val tiles: @Composable (Modifier) -> Unit = { m ->
+        ControlTiles(live, locationOk, onHud, onLocation, onGpsOn = {}, modifier = m.graphicsLayer { alpha = controlsIn })
+    }
+    val sweep = span(e, 0.25f, 1.45f, SoftEase)
+    val timeIn = span(e, 0.6f, 1.3f)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth <= maxHeight) {
@@ -567,10 +585,10 @@ private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onH
                 Spacer(Modifier.weight(1f))
                 word()
                 Spacer(Modifier.height(24.dp))
-                CountdownRing(fraction, time, Modifier.size(184.dp), 46.sp)
+                CountdownRing(fraction, time, Modifier.size(184.dp), 46.sp, sweep, timeIn)
                 Spacer(Modifier.weight(1f))
                 figures(Modifier.padding(horizontal = 20.dp))
-                TodayLine(today, Modifier.padding(top = 14.dp, start = 20.dp, end = 20.dp))
+                TodayLine(today, Modifier.padding(top = 14.dp, start = 20.dp, end = 20.dp).graphicsLayer { alpha = figuresIn })
                 Spacer(Modifier.weight(0.8f))
                 end(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
                 tiles(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp))
@@ -580,11 +598,11 @@ private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onH
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     word()
                     Spacer(Modifier.height(14.dp))
-                    CountdownRing(fraction, time, Modifier.size(150.dp), 38.sp)
+                    CountdownRing(fraction, time, Modifier.size(150.dp), 38.sp, sweep, timeIn)
                 }
                 Column(Modifier.weight(1.2f).fillMaxHeight().padding(end = 20.dp, top = 12.dp, bottom = 12.dp)) {
                     figures(Modifier)
-                    TodayLine(today, Modifier.padding(top = 12.dp))
+                    TodayLine(today, Modifier.padding(top = 12.dp).graphicsLayer { alpha = figuresIn })
                     Spacer(Modifier.weight(1f))
                     end(Modifier.padding(bottom = 12.dp))
                     tiles(Modifier)
@@ -594,9 +612,15 @@ private fun ParkedView(live: LiveState, today: Summary, locationOk: Boolean, onH
     }
 }
 
-/** The time left to carry on this drive, as a ring that empties. */
+/**
+ * The time left to carry on this drive, as a ring that empties. On arrival the ring sweeps round from
+ * nothing to the time left ([sweep] 0 to 1) and the time fades in ([timeIn]).
+ */
 @Composable
-private fun CountdownRing(fraction: Float, time: String, modifier: Modifier, textSize: androidx.compose.ui.unit.TextUnit) {
+private fun CountdownRing(
+    fraction: Float, time: String, modifier: Modifier, textSize: androidx.compose.ui.unit.TextUnit,
+    sweep: Float = 1f, timeIn: Float = 1f,
+) {
     val f by animateFloatAsState(fraction, tween(1_000, easing = LinearEasing), label = "countdown")
     val accent = Lux.Gold
     val line = Lux.Line
@@ -606,13 +630,14 @@ private fun CountdownRing(fraction: Float, time: String, modifier: Modifier, tex
             val r = 80f * u
             val tl = Offset(center.x - r, center.y - r)
             val sz = Size(2 * r, 2 * r)
-            drawCircle(line, r, style = Stroke(1.5f * u))
-            if (f > 0.002f) {
-                drawArc(accent.copy(alpha = 0.16f), -90f, 360f * f, false, tl, sz, style = Stroke(7f * u, cap = StrokeCap.Round))
-                drawArc(accent, -90f, 360f * f, false, tl, sz, style = Stroke(2.4f * u, cap = StrokeCap.Round))
+            drawCircle(line, r, style = Stroke(1.5f * u), alpha = (sweep * 2f).coerceAtMost(1f))
+            val shown = f * sweep
+            if (shown > 0.002f) {
+                drawArc(accent.copy(alpha = 0.16f), -90f, 360f * shown, false, tl, sz, style = Stroke(7f * u, cap = StrokeCap.Round))
+                drawArc(accent, -90f, 360f * shown, false, tl, sz, style = Stroke(2.4f * u, cap = StrokeCap.Round))
             }
         }
-        Text(time, style = lux(textSize, FontWeight.ExtraLight, Lux.Txt))
+        Text(time, style = lux(textSize, FontWeight.ExtraLight, Lux.Txt), modifier = Modifier.graphicsLayer { alpha = timeIn })
     }
 }
 

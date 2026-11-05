@@ -288,12 +288,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // The welcome: not while moving (the gauges matter more), and never over the HUD or floating window.
+            // The welcome is for opening the app to set off. Not while moving (the gauges matter more), not
+            // part-way through a drive or while it is parked (its own screens come first), not over a
+            // goodbye not yet seen, and never over the HUD or floating window.
             LaunchedEffect(introArmed) {
                 if (!introArmed) return@LaunchedEffect
                 val now = LiveBus.state.value
                 val moving = now.link == com.abeernch.civicobd.core.Link.Live && (now.values[0x0D] ?: 0.0) > 5
-                if (moving) {
+                val underway = now.trip.active && (now.trip.distanceKm >= 0.1 || now.tripPaused)
+                val goodbyeWaiting = goodbyePending || completed?.played == false
+                if (moving || underway || goodbyeWaiting) {
                     introArmed = false
                 } else {
                     completed = null
@@ -310,7 +314,9 @@ class MainActivity : ComponentActivity() {
             // The app stays composed underneath the head-up display and the floating window, so
             // leaving either returns to the same tab, without the splash playing again.
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-            AppShell(live, driveJump, jump, onSplashFinished = { splashOver = true }) { tab ->
+            // The goodbye stands on true black: the page's soft lift is turned down while it shows.
+            val goodbyeShown = !live.trip.active && completed != null
+            AppShell(live, driveJump, jump, pageLift = !goodbyeShown, onSplashFinished = { splashOver = true }) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
@@ -471,6 +477,15 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleOpen(intent)
+        // Test build only: "ignition_off" switches the demo car's ignition off (or on) with the adapter left
+        // plugged in; "rearm_intro" behaves as if the app had been away for more than five minutes.
+        if (BuildConfig.TEST_HOOKS) {
+            if (intent.hasExtra("ignition_off")) com.abeernch.civicobd.obd.SimTransport.ignitionOff = intent.getBooleanExtra("ignition_off", false)
+            if (intent.getBooleanExtra("rearm_intro", false)) {
+                introLeadMs = 450
+                introArmed = true
+            }
+        }
     }
 
     // ---- Floating window (picture in picture) ----

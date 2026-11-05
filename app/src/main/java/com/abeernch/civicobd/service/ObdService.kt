@@ -281,6 +281,9 @@ class ObdService : Service() {
                     val volts = readVoltage(elm) // also proves the link is still alive
                     // Above about 13.3 V the alternator is charging, so the engine is running.
                     val engineRunning = volts != null && volts >= 13.3
+                    // The adapter answers but the engine computer does not, and nothing is charging: the
+                    // ignition is off. The drive is parked now, not a minute later.
+                    if (volts != null && !engineRunning) parkNow(System.currentTimeMillis())
                     setLink(
                         Link.EngineOff,
                         if (engineRunning) "Engine on. Reaching the engine computer" else "Connected. Waiting for ignition",
@@ -403,8 +406,11 @@ class ObdService : Service() {
             if (answered == 0) {
                 fillFromGps(System.currentTimeMillis())
                 fails++
-                if (fails >= 3) {
-                    LiveBus.log("Engine computer stopped answering")
+                // Silent, and the battery is not being charged: the ignition has been switched off. Stop
+                // at once instead of after three empty rounds, so the drive can be parked straight away.
+                val ignitionOff = fails == 1 && trip.active && (readVoltage(elm)?.let { it < 13.3 } ?: false)
+                if (fails >= 3 || ignitionOff) {
+                    LiveBus.log(if (ignitionOff) "Engine computer silent and the battery not charging: ignition off" else "Engine computer stopped answering")
                     values.remove(0x0C)
                     values.remove(0x0D)
                     LiveBus.update { it.copy(values = values) }
@@ -779,6 +785,19 @@ class ObdService : Service() {
         }
     }
 
+    /**
+     * The ignition is known to be off (the adapter answers, the engine computer does not, the battery is
+     * not charging), so the drive is parked at once. Not while GPS still shows the car moving. The
+     * countdown runs from the moment the engine computer last answered, as for any other stop.
+     */
+    private fun parkNow(now: Long) {
+        if (!trip.active || summaryShown) return
+        val fix = route.latest
+        if (fix != null && now - fix.atMs < 5_000 && (fix.speedKmh ?: 0.0) >= CAR_SPEED_KMH) return
+        LiveBus.log("Ignition off: parked straight away")
+        pauseTrip()
+    }
+
     private fun pauseTrip() {
         summaryShown = true
         saveTrip(lastRunningMs)
@@ -887,7 +906,7 @@ class ObdService : Service() {
         /** Parked this long, the drive pauses and its summary is shown. */
         private const val PAUSE_MS = 60_000L
         /** Parked longer than this, the drive ends; a start after it begins a new drive. */
-        private const val CONTINUE_MS = 10 * 60_000L
+        private val CONTINUE_MS = com.abeernch.civicobd.BuildConfig.PARK_MS
 
         /** The one extra reading taken in each polling cycle, in turn. */
         private val EXTRA_ROTATION = listOf(0x11, 0x0F, 0x11, 0x05, 0x11, 0x04, 0x11, 0x0E)

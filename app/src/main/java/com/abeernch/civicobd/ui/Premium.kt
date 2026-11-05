@@ -473,32 +473,32 @@ private fun valueWithUnit(value: String, unit: String): AnnotatedString = buildA
 // ---------------------------------------------------------------- the cloud behind the goodbye
 
 /**
- * A faint white glow behind the car on the goodbye, like the backlight behind a premium car's farewell:
- * three wide, very soft clouds centred behind the upper body of what it sits behind, reaching well past
- * its edges, drifting slowly. Drawn without blur filters: each cloud fades out over most of its radius.
+ * The halo behind the car on the goodbye: a limited glow centred behind the roof and the glass, falling
+ * smoothly to nothing well before the wheels, so everything around it is true black. Two soft layers that
+ * drift a little, so it breathes. Drawn without blur filters: each layer fades out over its whole radius.
  */
 @Composable
 fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "glow")
     val a by t.animateFloat(0f, 1f, infiniteRepeatable(tween(18_000), RepeatMode.Reverse), label = "g1")
     val b by t.animateFloat(0f, 1f, infiniteRepeatable(tween(22_000), RepeatMode.Reverse), label = "g2")
-    val c by t.animateFloat(0f, 1f, infiniteRepeatable(tween(20_000), RepeatMode.Reverse), label = "g3")
     Canvas(modifier) {
         if (alpha <= 0f || !Palette.isDark || size.width < 1f || size.height < 1f) return@Canvas
         val w = size.width
         val h = size.height
-        fun cloud(x: Float, y: Float, rx: Float, ry: Float, color: Color, dx: Float, dy: Float, grow: Float) {
-            val centre = Offset(w * (x + dx), h * (y + dy))
-            val radiusY = h * ry * grow
-            val k = (w * rx) / (h * ry)
+        fun layer(x: Float, y: Float, rx: Float, ry: Float, color: Color) {
+            val centre = Offset(w * x, h * y)
+            val radiusY = h * ry
             val peak = color.alpha * alpha
-            scale(scaleX = k, scaleY = 1f, pivot = centre) {
+            // A bell-shaped fall from the centre to exactly nothing at the edge.
+            scale(scaleX = (w * rx) / radiusY, scaleY = 1f, pivot = centre) {
                 drawCircle(
                     Brush.radialGradient(
                         0f to color.copy(alpha = peak),
-                        0.3f to color.copy(alpha = peak * 0.8f),
-                        0.55f to color.copy(alpha = peak * 0.45f),
-                        0.8f to color.copy(alpha = peak * 0.14f),
+                        0.2f to color.copy(alpha = peak * 0.9f),
+                        0.4f to color.copy(alpha = peak * 0.64f),
+                        0.6f to color.copy(alpha = peak * 0.33f),
+                        0.8f to color.copy(alpha = peak * 0.1f),
                         1f to Color.Transparent,
                         center = centre, radius = radiusY,
                     ),
@@ -506,10 +506,8 @@ fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
                 )
             }
         }
-        // Highest behind the roofline, fading out by the wheels, so the car's dark lower edge melts into the page.
-        cloud(0.50f, 0.30f, 0.86f, 0.82f, Color(0xFFECF2FA).copy(alpha = 0.14f), -0.03f + 0.06f * a, 0.03f * a, 1f + 0.06f * a)
-        cloud(0.64f, 0.22f, 0.64f, 0.70f, Color(0xFFDEE8F6).copy(alpha = 0.09f), 0.04f - 0.08f * b, -0.03f * b, 1.04f - 0.07f * b)
-        cloud(0.34f, 0.36f, 0.58f, 0.62f, Color.White.copy(alpha = 0.07f), 0.06f * c, -0.03f * c, 0.96f + 0.08f * c)
+        layer(0.54f - 0.015f + 0.03f * a, 0.28f + 0.015f * a, 0.42f * (1f + 0.04f * a), 0.52f * (1f + 0.04f * a), Color(0xFFE6ECF5).copy(alpha = 0.22f))
+        layer(0.56f + 0.02f - 0.04f * b, 0.18f - 0.015f * b, 0.24f * (1.03f - 0.05f * b), 0.26f * (1.03f - 0.05f * b), Color(0xFFF2F5FA).copy(alpha = 0.07f))
     }
 }
 
@@ -520,8 +518,8 @@ fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
  * [reveal] and [sheen] run from 0 to 1.
  */
 @Composable
-fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = Modifier, fontSize: TextUnit = 34.sp) {
-    val base = lux(fontSize, FontWeight.ExtraLight, Color(0xFFE9ECF1), 3.sp).copy(textAlign = TextAlign.Center)
+fun RevealTitle(text: String, reveal: Float, sheen: Float, modifier: Modifier = Modifier, fontSize: TextUnit = 34.sp, spacing: TextUnit = 3.sp) {
+    val base = lux(fontSize, FontWeight.ExtraLight, Color(0xFFE9ECF1), spacing).copy(textAlign = TextAlign.Center)
     Box(
         modifier
             .semantics { contentDescription = text }

@@ -9,7 +9,8 @@ APK=app/build/outputs/apk/uitest/app-uitest.apk
 
 # Runs on an Android 11 emulator: the Android 13 and 14 emulator images (emulator 37.2) go down when the
 # screen is captured while this app is showing. The app itself runs on them; only the capture fails.
-shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "shot $1"; }
+# Frames are taken raw and turned into PNGs here: encoding them on the emulator takes seconds each.
+shot() { adb exec-out screencap > "$OUT/.raw_$1" && python3 .github/raw2png.py "$OUT/.raw_$1" "$OUT/$1.png"; rm -f "$OUT/.raw_$1"; echo "shot $1"; }
 
 # Stops early if the emulator has gone away, instead of spending the time limit on failing commands.
 alive() {
@@ -86,9 +87,10 @@ pos_text() {
   python3 .github/find_text.py "$OUT/ui.xml" "$1" 0
 }
 
-# Fast frame grabs (about 3 to 5 per second).
+# Fast frame grabs: raw frames first, as quickly as the emulator gives them, then the PNGs.
 burst() {  # burst NAME COUNT
-  for n in $(seq -w 1 "$2"); do adb exec-out screencap -p > "$OUT/$1_$n.png"; done
+  for n in $(seq -w 1 "$2"); do adb exec-out screencap > "$OUT/.raw_$1_$n"; done
+  for n in $(seq -w 1 "$2"); do python3 .github/raw2png.py "$OUT/.raw_$1_$n" "$OUT/$1_$n.png"; rm -f "$OUT/.raw_$1_$n"; done
 }
 
 # 1. Cold start with the demo car switched on: the splash, then the drive welcome inside the Drive tab
@@ -150,18 +152,33 @@ tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
 tap_text "Settings"; sleep 2
 tap_text "Night"; sleep 2
 
-# 5. Park the car: switching the demo off stops the engine; 60 s later the trip ends with a summary.
-tap_text "Settings"; sleep 2
-scroll_tap "Stop demo drive"; sleep 95
+# 5. The end of a drive. The demo car's ignition goes off with the adapter left plugged in: the drive is
+#    parked straight away (PARKED and its countdown arrive), coming back to the app as if after a long time
+#    away does not bring the welcome, and when the countdown runs out (100 s in this build) the goodbye
+#    plays by itself.
+tap_text "Drive"; sleep 2
+T0=$(date +%s)
+adb shell am start -n $PKG/.MainActivity --ez ignition_off true >/dev/null
+burst 10c_parking 24; alive "parking"
+echo "parked after $(( $(date +%s) - T0 )) s of frames"
+shot 10d_drive_parked
+adb shell am start -n $PKG/.MainActivity --ez rearm_intro true >/dev/null
+burst 10d1_back_while_parked 10
 adb shell cmd statusbar expand-notifications; sleep 2; shot 10a_trip_notification
 adb shell cmd statusbar collapse; sleep 1
-tap_text "Drive"; sleep 2; shot 10d_drive_parked
 adb shell settings put system user_rotation 1; sleep 4; shot 10d2_parked_landscape
 adb shell settings put system user_rotation 0; sleep 4
-# End the paused drive, so it can be merged later on: the goodbye plays (the car's lights go out).
-tap_text "End drive now"; burst 10e_goodbye 30; alive "the goodbye"; sleep 4; shot 10f_drive_ended
+# Wait for the countdown to run out, then watch the goodbye (the car's lights go out, the halo comes up).
+while [ $(( $(date +%s) - T0 )) -lt 94 ]; do sleep 1; done
+burst 10e_goodbye 40; alive "the goodbye"; sleep 4; shot 10f_drive_ended
 adb shell settings put system user_rotation 1; sleep 4; shot 10f2_ended_landscape
 adb shell settings put system user_rotation 0; sleep 4
+# Coming back after a long time with the goodbye already seen: now the welcome may play.
+adb shell am start -n $PKG/.MainActivity --ez rearm_intro true >/dev/null
+burst 10g_back_after_goodbye 16
+# The demo car stays off for the rest of the walkthrough.
+tap_text "Settings"; sleep 2
+scroll_tap "Stop demo drive"; sleep 3
 tap_text "Stats"; sleep 2; shot 10_stats_week
 # The period is a menu now: open it, then pick Today.
 tap_text "This week"; sleep 1.5; shot 10e_stats_period_menu

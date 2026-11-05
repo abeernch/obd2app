@@ -60,6 +60,7 @@ fun AppShell(
     live: LiveState,
     driveJump: Int = 0,
     jump: Pair<Tab, Int>? = null,
+    pageLift: Boolean = true,
     onSplashFinished: () -> Unit = {},
     screen: @Composable (Tab) -> Unit,
 ) {
@@ -75,8 +76,9 @@ fun AppShell(
     val reveal by animateFloatAsState(if (revealed) 1f else 0f, Motion.fade(480), label = "reveal")
     androidx.compose.runtime.LaunchedEffect(splashDone) { if (splashDone) onSplashFinished() }
 
-    // On Drive, a soft lift of dark grey behind the instruments, falling to black; it fades with the tab.
-    val lux by animateFloatAsState(if (tab == Tab.Drive) 1f else 0f, Motion.fade(350), label = "luxPage")
+    // On Drive, a soft lift of dark grey behind the instruments, falling to black; it fades with the tab,
+    // and gives way to true black where a screen brings its own light (the goodbye).
+    val lux by animateFloatAsState(if (tab == Tab.Drive && pageLift) 1f else 0f, Motion.fade(350), label = "luxPage")
     Box(
         Modifier
             .fillMaxSize()
