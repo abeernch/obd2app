@@ -180,12 +180,15 @@ private fun Header(live: LiveState) {
             modifier = Modifier.weight(1f).padding(start = 12.dp),
         ) { text ->
             val context = androidx.compose.ui.platform.LocalContext.current
-            // Tapping the status switches Bluetooth on (if needed) and looks for the adapter again.
-            Text(
-                text, style = Type.label.copy(color = color), maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.pressable { com.abeernch.civicobd.service.ObdService.wake(context) },
-            )
+            // Right-aligned against the light. Tapping the status switches Bluetooth on (if needed) and looks
+            // for the adapter again.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Text(
+                    text, style = Type.label.copy(color = color), maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.pressable { com.abeernch.civicobd.service.ObdService.wake(context) },
+                )
+            }
         }
         StatusDot(color, breathing = working, halo = live.link == Link.Live)
     }
