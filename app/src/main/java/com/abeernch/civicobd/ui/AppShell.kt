@@ -167,19 +167,23 @@ private fun Header(live: LiveState) {
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Civic", style = Type.title, modifier = Modifier.weight(1f))
+        // The title keeps its one line; a long status gives way instead, ending in "…".
+        Text("Civic", style = Type.title, maxLines = 1, softWrap = false)
         AnimatedContent(
             targetState = live.status,
             transitionSpec = {
                 (slideInVertically(Motion.settle()) { it } + fadeIn(Motion.fade(250))) togetherWith
                     (slideOutVertically(Motion.settle()) { -it } + fadeOut(Motion.fade(180)))
             },
+            contentAlignment = Alignment.CenterEnd,
             label = "status",
+            modifier = Modifier.weight(1f).padding(start = 12.dp),
         ) { text ->
             val context = androidx.compose.ui.platform.LocalContext.current
             // Tapping the status switches Bluetooth on (if needed) and looks for the adapter again.
             Text(
                 text, style = Type.label.copy(color = color), maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.pressable { com.abeernch.civicobd.service.ObdService.wake(context) },
             )
         }

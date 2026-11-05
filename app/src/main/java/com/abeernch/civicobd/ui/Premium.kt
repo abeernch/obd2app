@@ -474,8 +474,8 @@ private fun valueWithUnit(value: String, unit: String): AnnotatedString = buildA
 
 /**
  * A faint white glow behind the car on the goodbye, like the backlight behind a premium car's farewell:
- * three wide, very soft clouds centred a little above the middle of what it sits behind, reaching well
- * past its edges, drifting slowly. Drawn without blur filters: each cloud fades out over most of its radius.
+ * three wide, very soft clouds centred behind the upper body of what it sits behind, reaching well past
+ * its edges, drifting slowly. Drawn without blur filters: each cloud fades out over most of its radius.
  */
 @Composable
 fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
@@ -506,9 +506,10 @@ fun CarGlow(alpha: Float, modifier: Modifier = Modifier) {
                 )
             }
         }
-        cloud(0.50f, 0.44f, 0.80f, 0.98f, Color(0xFFECF2FA).copy(alpha = 0.13f), -0.03f + 0.06f * a, 0.03f * a, 1f + 0.06f * a)
-        cloud(0.63f, 0.36f, 0.62f, 0.86f, Color(0xFFDEE8F6).copy(alpha = 0.09f), 0.04f - 0.08f * b, -0.03f * b, 1.04f - 0.07f * b)
-        cloud(0.35f, 0.54f, 0.56f, 0.72f, Color.White.copy(alpha = 0.07f), 0.06f * c, -0.03f * c, 0.96f + 0.08f * c)
+        // Highest behind the roofline, fading out by the wheels, so the car's dark lower edge melts into the page.
+        cloud(0.50f, 0.30f, 0.86f, 0.82f, Color(0xFFECF2FA).copy(alpha = 0.14f), -0.03f + 0.06f * a, 0.03f * a, 1f + 0.06f * a)
+        cloud(0.64f, 0.22f, 0.64f, 0.70f, Color(0xFFDEE8F6).copy(alpha = 0.09f), 0.04f - 0.08f * b, -0.03f * b, 1.04f - 0.07f * b)
+        cloud(0.34f, 0.36f, 0.58f, 0.62f, Color.White.copy(alpha = 0.07f), 0.06f * c, -0.03f * c, 0.96f + 0.08f * c)
     }
 }
 
