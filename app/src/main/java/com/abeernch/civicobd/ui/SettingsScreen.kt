@@ -245,6 +245,8 @@ fun SettingsScreen(
             ) {
                 demo = !demo
                 settings.demo = demo
+                // The demo car's fault codes are not this car's: they go the moment the demo is switched off.
+                if (!demo) com.abeernch.civicobd.core.Diagnostics.forgetDemo()
             }
         }
 

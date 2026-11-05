@@ -39,6 +39,9 @@ object Diagnostics {
 
     fun publish(change: (DiagState) -> DiagState) = _state.update(change)
 
+    /** Drops codes read from the demo car, so they are never shown as this car's once the demo is off. */
+    fun forgetDemo() = _state.update { if (it.demo) DiagState() else it }
+
     /**
      * Reads codes from Mode 03 or 07 reply lines, such as "430133000000".
      * Each code is two bytes; empty slots are 0000.

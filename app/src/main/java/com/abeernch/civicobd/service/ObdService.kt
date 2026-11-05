@@ -166,6 +166,8 @@ class ObdService : Service() {
         while (true) {
             fillFromGps(System.currentTimeMillis())
             checkTripEnd(System.currentTimeMillis())
+            // The demo car's fault codes are not this car's: once the demo is off, they go.
+            if (!settings.demo) Diagnostics.forgetDemo()
 
             if (settings.demo) {
                 wasLive = false
@@ -176,8 +178,6 @@ class ObdService : Service() {
                 } catch (e: Exception) {
                     LiveBus.log("Demo: ${e.message}")
                 }
-                // The demo car's fault codes are not this car's: once the demo is off, they go.
-                if (!settings.demo && Diagnostics.state.value.demo) Diagnostics.publish { com.abeernch.civicobd.core.DiagState() }
                 delay(1_000)
                 continue
             }
