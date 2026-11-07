@@ -96,7 +96,7 @@ type_field() {  # type_field LABEL TEXT [clear]
   xy=$(python3 .github/find_field.py "$OUT/ui.xml" "$1")
   if [ -z "$xy" ]; then echo "NOT FOUND: field '$1'"; return 1; fi
   adb shell input tap $xy; sleep 0.8
-  if [ -n "$3" ]; then adb shell input keyevent KEYCODE_MOVE_END; for n in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DEL; done; fi
+  if [ -n "${3:-}" ]; then adb shell input keyevent KEYCODE_MOVE_END; for n in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DEL; done; fi
   adb shell input text "$2"; echo "typed '$2' into '$1' at $xy"
 }
 
