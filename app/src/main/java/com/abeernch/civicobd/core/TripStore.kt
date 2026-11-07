@@ -63,6 +63,19 @@ class TripStore private constructor(context: Context) :
         if (oldVersion < 3) createFuelAndEventTables(db)
     }
 
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        // Columns added since version 3 without changing the version, so an older build still opens this database.
+        if (!db.isReadOnly) addColumnIfMissing(db, "fillups", "factor_before", "REAL")
+    }
+
+    private fun addColumnIfMissing(db: SQLiteDatabase, table: String, column: String, type: String) {
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            while (c.moveToNext()) if (c.getString(1) == column) return
+        }
+        db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
+    }
+
     /** Version 3: fill-ups (see Fuel.kt) and car events such as engine starts and fault codes (see Events.kt). */
     private fun createFuelAndEventTables(db: SQLiteDatabase) {
         db.execSQL(

@@ -357,4 +357,84 @@ class CoreTest {
         assertEquals("1:05:32", com.abeernch.civicobd.ui.clockTime(3600 + 5 * 60 + 32.0))
         assertEquals("0:00", com.abeernch.civicobd.ui.clockTime(-5.0))
     }
+
+    // Fill-ups, newest first as the log lists them. Day 1 full, day 5 partial, day 9 full (it set the correction).
+    private val day = 86_400_000L
+    private val first = com.abeernch.civicobd.core.Fillup(id = 1, timeMs = 1 * day, litres = 40.0, price = 260.0, full = true, odometer = 50_000.0)
+    private val partial = com.abeernch.civicobd.core.Fillup(id = 2, timeMs = 5 * day, litres = 10.0, price = 262.0, full = false, odometer = null)
+    // The app counted 30 L between day 1 and day 9; the pump put in 10 + 23 = 33 L, so 1.0 became 1.1.
+    private val newest = com.abeernch.civicobd.core.Fillup(
+        id = 3, timeMs = 9 * day, litres = 23.0, price = 265.0, full = true, odometer = 50_400.0,
+        appLitres = 30.0, factorBefore = 1.0, factorAfter = 1.1,
+    )
+    private val counted: (Long, Long) -> Double = { _, _ -> 30.0 }
+
+    @Test
+    fun fillupComparisonCountsPartialFillsInBetween() {
+        val c = com.abeernch.civicobd.core.compare(newest, listOf(partial, first), counted)!!
+        assertEquals(30.0, c.counted, 1e-9)
+        assertEquals(33.0, c.pumped, 1e-9)
+        assertEquals(1.1, c.factorFrom(1.0), 1e-9)
+        // A partial fill, or a full tank with none before it, makes no comparison.
+        assertEquals(null, com.abeernch.civicobd.core.compare(partial, listOf(first), counted))
+        assertEquals(null, com.abeernch.civicobd.core.compare(first, emptyList(), counted))
+    }
+
+    @Test
+    fun correctingTheNewestFullTankRedoesItsCorrection() {
+        // 23 L was a typo for 26 L: (10 + 26) / 30 from the 1.0 it started from.
+        val change = com.abeernch.civicobd.core.changeFillup(
+            newest, newest.copy(litres = 26.0), listOf(partial, first), factorNow = 1.1, priceNow = 265.0,
+            odometerAtMs = 9 * day, countedBetween = counted,
+        )
+        assertEquals(1.2, change.factor!!, 1e-9)
+        assertEquals(1.2, change.saved!!.factorAfter!!, 1e-9)
+        assertEquals(1.0, change.saved!!.factorBefore!!, 1e-9)
+        assertEquals(9 * day, change.saved!!.timeMs) // the time stays as logged
+        // Made a partial fill instead: no comparison any more, so the correction goes back to 1.0.
+        val asPartial = com.abeernch.civicobd.core.changeFillup(
+            newest, newest.copy(full = false), listOf(partial, first), 1.1, 265.0, 9 * day, counted,
+        )
+        assertEquals(1.0, asPartial.factor!!, 1e-9)
+        assertEquals(null, asPartial.saved!!.factorAfter)
+    }
+
+    @Test
+    fun deletingTheNewestFullTankUndoesItsCorrectionAndPrice() {
+        val change = com.abeernch.civicobd.core.changeFillup(newest, null, listOf(partial, first), 1.1, 265.0, 9 * day, counted)
+        assertEquals(null, change.saved)
+        assertEquals(1.0, change.factor!!, 1e-9)
+        assertEquals(262.0, change.price!!, 1e-9) // the price from the fill-up before it
+        // An older record without the starting correction kept: worked back from its comparison.
+        val old = newest.copy(factorBefore = null)
+        val back = com.abeernch.civicobd.core.changeFillup(old, null, listOf(partial, first), 1.1, 265.0, 9 * day, counted)
+        assertEquals(1.0, back.factor!!, 1e-9)
+    }
+
+    @Test
+    fun fillupChangesLeaveAHandSetCorrectionAndOlderTanksAlone() {
+        // The correction was typed in by hand after the fill-up: neither a correction nor a delete touches it.
+        val handSet = com.abeernch.civicobd.core.changeFillup(newest, newest.copy(litres = 26.0), listOf(partial, first), 1.05, 265.0, 9 * day, counted)
+        assertEquals(null, handSet.factor)
+        assertEquals(null, com.abeernch.civicobd.core.changeFillup(newest, null, listOf(partial, first), 1.05, 265.0, 9 * day, counted).factor)
+        // The first full tank is older than the newest one: correcting or deleting it changes no setting.
+        val older = com.abeernch.civicobd.core.changeFillup(first, first.copy(litres = 41.0), listOf(newest, partial), 1.1, 265.0, 9 * day, counted)
+        assertEquals(null, older.factor)
+        assertEquals(null, older.price)
+        assertEquals(41.0, older.saved!!.litres, 1e-9)
+        assertEquals(null, com.abeernch.civicobd.core.changeFillup(first, null, listOf(newest, partial), 1.1, 265.0, 9 * day, counted).factor)
+    }
+
+    @Test
+    fun correctingTheNewestFillupsPriceAndOdometer() {
+        val change = com.abeernch.civicobd.core.changeFillup(
+            newest, newest.copy(price = 268.0, odometer = 50_450.0), listOf(partial, first), 1.1, 265.0, 9 * day, counted,
+        )
+        assertEquals(268.0, change.price!!, 1e-9)
+        assertEquals(50_450.0, change.odometerKm!!, 1e-9)
+        assertEquals(null, change.factor) // litres unchanged, so the correction stands
+        // A newer odometer reading (typed in Settings since) is not replaced by an older fill-up's.
+        val later = com.abeernch.civicobd.core.changeFillup(newest, newest.copy(odometer = 50_450.0), listOf(partial, first), 1.1, 265.0, 10 * day, counted)
+        assertEquals(null, later.odometerKm)
+    }
 }

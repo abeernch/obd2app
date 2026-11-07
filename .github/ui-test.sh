@@ -89,6 +89,22 @@ scroll_to() {
   echo "NOT FOUND after scrolling: '$1'"; return 1
 }
 
+# Taps the text field on the same row as a label, then types into it (after clearing it, if asked).
+type_field() {  # type_field LABEL TEXT [clear]
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+  xy=$(python3 .github/find_field.py "$OUT/ui.xml" "$1")
+  if [ -z "$xy" ]; then echo "NOT FOUND: field '$1'"; return 1; fi
+  adb shell input tap $xy; sleep 0.8
+  if [ -n "$3" ]; then adb shell input keyevent KEYCODE_MOVE_END; for n in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DEL; done; fi
+  adb shell input text "$2"; echo "typed '$2' into '$1' at $xy"
+}
+
+# Closes the on-screen keyboard if it is showing (a Back with no keyboard would leave the screen).
+hide_keyboard() {
+  if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+}
+
 # Finds an element's centre without tapping it.
 pos_text() {
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
@@ -211,6 +227,15 @@ adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
 scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel
 tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
+# Log a full tank of 30 L at the price shown, correct it to 32 L, then delete it (tapped twice).
+type_field "Litres" "30"; hide_keyboard
+scroll_tap "Save"; sleep 2; shot 10c1_fuel_saved
+tap_text "Edit"; sleep 1.5; shot 10c2_fuel_editing
+type_field "Litres" "32" clear; hide_keyboard
+scroll_tap "Save changes"; sleep 2; shot 10c3_fuel_corrected
+tap_text "Edit"; sleep 1.5
+scroll_tap "Delete this fill-up"; sleep 1; shot 10c4_fuel_delete_confirm
+tap_text "Tap again to delete"; sleep 2; shot 10c5_fuel_deleted
 # One back closes the form; the tab bar takes it from there (two backs could leave the app).
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -131,6 +132,9 @@ fun FuelScreen(
     var fills by remember { mutableStateOf(emptyList<Fillup>()) }
     var adding by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    // The fill-up open for correcting, and what came of the last correction.
+    var editing by remember { mutableStateOf<Long?>(null) }
+    var historyMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(version) { fills = withContext(Dispatchers.IO) { fuel.all() } }
 
@@ -162,9 +166,12 @@ fun FuelScreen(
             }
         }
         item {
-            OutlineButton(if (adding) "Cancel" else "Log a fill-up", color = Palette.Accent) { adding = !adding }
+            OutlineButton(if (adding) "Cancel" else "Log a fill-up", color = Palette.Accent) {
+                adding = !adding
+                editing = null
+            }
             AnimatedVisibility(adding, enter = fadeIn(Motion.fade()) + expandVertically(Motion.settle()), exit = fadeOut(Motion.fade(160)) + shrinkVertically(Motion.settle())) {
-                FillupForm(settings) { f ->
+                FillupForm(settings, onSave = { f ->
                     scope.launch {
                         val saved = withContext(Dispatchers.IO) { fuel.add(f, settings) }
                         adding = false
@@ -177,28 +184,73 @@ fun FuelScreen(
                         }
                         onChanged()
                     }
-                }
+                })
             }
             message?.let {
                 Spacer(Modifier.height(10.dp))
                 Text(it, style = Type.label.copy(color = Palette.Value))
             }
         }
-        item { Text(if (fills.isEmpty()) "No fill-ups yet" else "History", style = Type.section) }
-        items(fills, key = { it.id }) { f -> FillupCard(f) }
+        item {
+            Column {
+                Text(if (fills.isEmpty()) "No fill-ups yet" else "History", style = Type.section)
+                if (fills.isNotEmpty()) Text("Tap a fill-up to correct or delete it.", style = Type.label)
+                historyMessage?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, style = Type.label.copy(color = Palette.Value))
+                }
+            }
+        }
+        items(fills, key = { it.id }) { f ->
+            FillupCard(
+                f, open = editing == f.id, settings = settings,
+                onToggle = {
+                    editing = if (editing == f.id) null else f.id
+                    adding = false
+                },
+                onSave = { edited ->
+                    scope.launch {
+                        val factorBefore = settings.fuelFactor
+                        withContext(Dispatchers.IO) { fuel.update(f, edited, settings) }
+                        editing = null
+                        historyMessage = "Fill-up corrected." +
+                            (if (kotlin.math.abs(settings.fuelFactor - factorBefore) >= 5e-4) " Correction is now ${fmt(settings.fuelFactor, 3)}." else "")
+                        onChanged()
+                    }
+                },
+                onDelete = {
+                    scope.launch {
+                        val change = withContext(Dispatchers.IO) { fuel.delete(f, settings) }
+                        editing = null
+                        historyMessage = "Fill-up deleted." + (change.factor?.let { " Correction back to ${fmt(it, 3)}." } ?: "")
+                        onChanged()
+                    }
+                },
+            )
+        }
     }
 }
 
-@Composable
-private fun FillupForm(settings: AppSettings, onSave: (Fillup) -> Unit) {
-    var litres by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf(fmt(settings.fuelPrice, 2)) }
-    var priceNote by remember { mutableStateOf("Last price used") }
-    var full by remember { mutableStateOf(true) }
-    var odometer by remember { mutableStateOf("") }
+/** A number as typed: no trailing zeros, always a full stop for the decimal point. */
+private fun plain(v: Double): String =
+    java.math.BigDecimal(v).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 
-    // Fetch today's price once when the form opens.
+/**
+ * The fill-up form: for a new fill-up, or, with [initial], to correct a saved one. A correction keeps the
+ * fill-up's time and the price that was paid, and offers [onDelete] (tapped twice, so never by accident).
+ */
+@Composable
+private fun FillupForm(settings: AppSettings, initial: Fillup? = null, onDelete: (() -> Unit)? = null, onSave: (Fillup) -> Unit) {
+    var litres by remember { mutableStateOf(initial?.litres?.let(::plain) ?: "") }
+    var price by remember { mutableStateOf(initial?.price?.let(::plain) ?: fmt(settings.fuelPrice, 2)) }
+    var priceNote by remember { mutableStateOf(if (initial == null) "Last price used" else "The price paid at the time") }
+    var full by remember { mutableStateOf(initial?.full ?: true) }
+    var odometer by remember { mutableStateOf(initial?.odometer?.let(::plain) ?: "") }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    // A new fill-up fetches today's price once when the form opens.
     LaunchedEffect(Unit) {
+        if (initial != null) return@LaunchedEffect
         priceNote = "Checking today's price..."
         val today = withContext(Dispatchers.IO) { PetrolPrice.fetch() }
         if (today != null) {
@@ -222,28 +274,61 @@ private fun FillupForm(settings: AppSettings, onSave: (Fillup) -> Unit) {
         val l = litres.toDoubleOrNull()
         val p = price.toDoubleOrNull()
         OutlineButton(
-            if (l != null && p != null) "Save  ${fmt(l * p, 0)} PKR" else "Enter litres and price",
+            if (l != null && p != null) "${if (initial == null) "Save" else "Save changes"}  ${fmt(l * p, 0)} PKR" else "Enter litres and price",
             color = if (l != null && p != null) Palette.Accent else Palette.Label,
         ) {
             if (l != null && l > 0 && p != null && p > 0) {
-                onSave(Fillup(timeMs = System.currentTimeMillis(), litres = l, price = p, full = full, odometer = odometer.toDoubleOrNull()))
+                onSave(Fillup(timeMs = initial?.timeMs ?: System.currentTimeMillis(), litres = l, price = p, full = full, odometer = odometer.toDoubleOrNull()))
+            }
+        }
+        if (onDelete != null) {
+            Spacer(Modifier.height(8.dp))
+            OutlineButton(
+                if (confirmDelete) "Tap again to delete this fill-up" else "Delete this fill-up",
+                color = if (confirmDelete) Palette.Warning else Palette.Label,
+            ) { if (confirmDelete) onDelete() else confirmDelete = true }
+        }
+    }
+}
+
+/** A saved fill-up. Tapping it opens the form under it to correct or delete it; tapping again closes it. */
+@Composable
+private fun FillupCard(
+    f: Fillup,
+    open: Boolean,
+    settings: AppSettings,
+    onToggle: () -> Unit,
+    onSave: (Fillup) -> Unit,
+    onDelete: () -> Unit,
+) {
+    val day = SimpleDateFormat("EEE d MMM yyyy, HH:mm", Locale.US).format(Date(f.timeMs))
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, if (open) Palette.Accent.copy(alpha = 0.5f) else Palette.Hairline, RoundedCornerShape(12.dp))
+    ) {
+        Column(Modifier.fillMaxWidth().pressable(onClick = onToggle).padding(16.dp)) {
+            FillupSummary(f, day, open)
+        }
+        AnimatedVisibility(open, enter = fadeIn(Motion.fade()) + expandVertically(Motion.settle()), exit = fadeOut(Motion.fade(160)) + shrinkVertically(Motion.settle())) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                FillupForm(settings, initial = f, onDelete = onDelete, onSave = onSave)
+                Spacer(Modifier.height(8.dp))
+                OutlineButton("Cancel", color = Palette.Label, onClick = onToggle)
             }
         }
     }
 }
 
 @Composable
-private fun FillupCard(f: Fillup) {
-    val day = SimpleDateFormat("EEE d MMM yyyy, HH:mm", Locale.US).format(Date(f.timeMs))
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .border(1.dp, Palette.Hairline, RoundedCornerShape(12.dp))
-            .padding(16.dp)
-    ) {
+private fun FillupSummary(f: Fillup, day: String, open: Boolean) {
+    Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(day, style = Type.body, modifier = Modifier.weight(1f))
             Text(if (f.full) "Full" else "Partial", style = Type.label.copy(color = if (f.full) Palette.Accent else Palette.Label))
+            Spacer(Modifier.width(14.dp))
+            Text(if (open) "Close" else "Edit", style = Type.label.copy(color = Palette.Accent))
         }
         Row(Modifier.fillMaxWidth()) {
             Tile("Litres", fmt(f.litres, 1), "L", Modifier.weight(1f))
