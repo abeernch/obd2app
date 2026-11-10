@@ -214,11 +214,14 @@ class MainActivity : ComponentActivity() {
                 val t = live.trip
                 val saved = rows.filter { it.id != t.id }
                 if (!t.active) return Summary.of(saved)
+                // A carpooling share already entered for the drive in progress stays with it.
+                val own = rows.firstOrNull { it.id == t.id }
                 return Summary.of(
                     saved + TripRow(
                         id = t.id, startMs = t.startMs, endMs = System.currentTimeMillis(),
                         distanceKm = t.distanceKm, fuelL = t.fuelL, cost = t.fuelL * live.fuelPrice,
                         driveS = t.driveS, idleS = t.idleS, maxSpeed = t.maxSpeed,
+                        shared = own?.shared ?: 0.0, passengers = own?.passengers ?: 0,
                     )
                 )
             }
@@ -392,6 +395,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 LiveBus.tripsChanged()
+                                com.abeernch.civicobd.widget.TripWidget.refresh(this@MainActivity)
                                 done(merged)
                             }
                         },
@@ -400,6 +404,7 @@ class MainActivity : ComponentActivity() {
                                 // Deleting a drive removes both its totals and its recording.
                                 if (rec != null) recordings.delete(rec.id, withTrip = true) else store.delete(trip.id)
                                 LiveBus.tripsChanged()
+                                com.abeernch.civicobd.widget.TripWidget.refresh(this@MainActivity)
                             }
                         },
                     )

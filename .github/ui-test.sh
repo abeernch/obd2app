@@ -273,13 +273,14 @@ adb shell input keyevent KEYCODE_BACK; sleep 1.5
 tap_text "km/L"; sleep 4; shot 18_trip_demo
 adb shell input swipe 540 1800 540 900 400; sleep 2; shot 18a_trip_demo_map
 tap_text "Open the full-screen map"; sleep 8; shot 20_route_map
-# Press and hold on the map, then slide: the marker should snap to the route and follow it.
-adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
-adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
-# Route options are menus: open each by its current value, then pick.
+# Route options are menus: open each by its current value, then pick. Before the marker is placed: its
+# readout sits above the options and has an "Economy" of its own.
 tap_text "Economy"; sleep 1; tap_text "Speed"; sleep 2; shot 24_route_speed
 tap_text "Parula"; sleep 1; tap_text "Red–yellow–green"; sleep 2; shot 23_route_rdylgn
 scroll_tap "Esri gray"; sleep 1; tap_text "OpenStreetMap"; sleep 6; shot 22b_route_osm
+# Press and hold on the map, then slide: the marker should snap to the route and follow it.
+adb shell input swipe 400 800 402 802 1500; sleep 1; shot 21_route_hold
+adb shell input swipe 300 700 800 1200 3000; sleep 1; shot 22_route_scrub
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 # Back to the list, pick the two newest drives and merge them.
 adb shell input keyevent KEYCODE_BACK; sleep 1.5

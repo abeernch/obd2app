@@ -175,6 +175,8 @@ fun FuelScreen(
                     scope.launch {
                         val saved = withContext(Dispatchers.IO) { fuel.add(f, settings) }
                         adding = false
+                        // One note at a time: the latest says what happened.
+                        historyMessage = null
                         message = when {
                             saved.factorAfter != null ->
                                 "Saved. The app counted ${fmt(saved.appLitres, 1)} L since the last full tank, " +
@@ -213,6 +215,7 @@ fun FuelScreen(
                         val factorBefore = settings.fuelFactor
                         withContext(Dispatchers.IO) { fuel.update(f, edited, settings) }
                         editing = null
+                        message = null
                         historyMessage = "Fill-up corrected." +
                             (if (kotlin.math.abs(settings.fuelFactor - factorBefore) >= 5e-4) " Correction is now ${fmt(settings.fuelFactor, 3)}." else "")
                         onChanged()
@@ -222,6 +225,7 @@ fun FuelScreen(
                     scope.launch {
                         val change = withContext(Dispatchers.IO) { fuel.delete(f, settings) }
                         editing = null
+                        message = null
                         historyMessage = "Fill-up deleted." + (change.factor?.let { " Correction back to ${fmt(it, 3)}." } ?: "")
                         onChanged()
                     }

@@ -687,4 +687,25 @@ class CoreTest {
         assertTrue(H.timeProblem(now - 60 * 60_000, 25.0, now, liveFrom)!!.startsWith("A drive is being recorded since"))
         assertEquals(null, H.timeProblem(now - 60 * 60_000, 15.0, now, liveFrom))
     }
+
+    @Test
+    fun theTripsExportCarriesTheShareAndDrivesAddedByHand() {
+        val dir = kotlin.io.path.createTempDirectory("trips").toFile()
+        val recorded = drive(1, 1.0, 20.0, 1.6, shared = 800.0)
+        val byHand = drive(2, 2.0, 30.0, 2.0, manual = true).copy(fuelEstimated = true, passengers = 2, note = "Ali took it; \"short\" trip")
+        val lines = CsvExport.trips(dir, listOf(byHand, recorded)).readLines()
+        val head = lines[0].split(';')
+        // The earlier columns keep their places; the new ones follow.
+        assertEquals(listOf("Start", "End", "Distance km", "Fuel L", "Economy km/L", "Cost PKR"), head.take(6))
+        assertEquals(listOf("Carpool passengers", "Carpooling share PKR", "Net cost PKR", "Added by hand", "Fuel estimated", "Note"), head.drop(9))
+        val first = lines[1].split(';')            // oldest first: the recorded drive
+        assertEquals("12.50", first[4])
+        assertEquals("800", first[10])
+        assertEquals("-320", first[11])            // fuel Rs 480 less Rs 800
+        assertEquals("no", first[12])
+        val second = lines[2]
+        assertTrue(second.contains(";0.00;"))      // no economy for a drive added by hand
+        assertTrue(second.endsWith(";yes;yes;\"Ali took it; \"\"short\"\" trip\""))
+        dir.deleteRecursively()
+    }
 }
