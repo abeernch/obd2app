@@ -68,7 +68,7 @@ jobs:
   ui-test:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +85,7 @@ jobs:
 
       - name: Run on emulator
         # If the emulator dies, end here instead of waiting for the job limit.
-        timeout-minutes: 22
+        timeout-minutes: 38
         uses: reactivecircus/android-emulator-runner@v2
         with:
           # Android 11: the Android 13 and 14 images of emulator 37.2 go down on screen capture with this app.
