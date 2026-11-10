@@ -125,8 +125,12 @@ fun SettingsScreen(
             NumberField("Odometer now", odo, "km") {
                 odo = it
                 it.toDoubleOrNull()?.let { km ->
-                    settings.odometerKm = km
-                    settings.odometerAtMs = System.currentTimeMillis()
+                    // Typed during a recorded drive, it is kept as of that drive's start, so the drive counts once.
+                    val (reading, at) = com.abeernch.civicobd.core.Car.readingAt(
+                        km, System.currentTimeMillis(), com.abeernch.civicobd.core.LiveBus.state.value.trip,
+                    )
+                    settings.odometerKm = reading
+                    settings.odometerAtMs = at
                     onChanged()
                 }
             }

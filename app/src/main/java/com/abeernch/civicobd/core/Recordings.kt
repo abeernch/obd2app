@@ -132,6 +132,8 @@ class Recordings(private val store: TripStore) {
      * Returns the merged drive.
      */
     fun mergeTrips(a: TripRow, b: TripRow): TripRow {
+        // A drive added by hand is an estimate: it is never joined to a recorded one (the list does not offer it).
+        require(!a.manual && !b.manual) { "Drives added by hand are not merged" }
         val (first, second) = if (a.startMs <= b.startMs) a to b else b to a
         val merged = first.copy(
             startMs = minOf(first.startMs, second.startMs),
@@ -142,6 +144,9 @@ class Recordings(private val store: TripStore) {
             driveS = first.driveS + second.driveS,
             idleS = first.idleS + second.idleS,
             maxSpeed = maxOf(first.maxSpeed, second.maxSpeed),
+            // The carpooling share of both parts; the most passengers riding at once.
+            shared = first.shared + second.shared,
+            passengers = maxOf(first.passengers, second.passengers),
         )
         val db = store.writableDatabase
         db.beginTransaction()
@@ -163,6 +168,7 @@ class Recordings(private val store: TripStore) {
                 else -> Unit
             }
             store.update(merged)
+            store.setShare(merged.id, merged.shared, merged.passengers)
             store.delete(second.id)
             db.setTransactionSuccessful()
         } finally {

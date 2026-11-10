@@ -59,9 +59,14 @@ private enum class Metric(val label: String, val unit: String) {
 }
 
 
+/**
+ * Totals and a chart for a period: a day, week, month, year, or the tank in use (since the last full
+ * fill-up), stepping back tank by tank. [version] changes whenever drives or fill-ups do.
+ */
 @Composable
 fun StatsScreen(
     store: TripStore,
+    fuel: com.abeernch.civicobd.core.FuelLog,
     version: Int,
     onExportTrips: (List<TripRow>) -> Unit,
     header: @Composable () -> Unit = {},
@@ -72,8 +77,19 @@ fun StatsScreen(
     var trips by remember { mutableStateOf(emptyList<TripRow>()) }
     var firstTrip by remember { mutableStateOf<Long?>(null) }
     var selected by remember { mutableStateOf<Int?>(null) }
+    // Full fill-ups, newest first, which divide the drives into tanks; and each finished tank's economy by the pump.
+    var fills by remember { mutableStateOf(emptyList<com.abeernch.civicobd.core.Fillup>()) }
+    var stretches by remember { mutableStateOf(emptyMap<Long, com.abeernch.civicobd.core.TankStretch>()) }
+    LaunchedEffect(version) {
+        val (all, byPump) = withContext(Dispatchers.IO) { fuel.all().let { it to fuel.tankStretches(it) } }
+        fills = all
+        stretches = byPump
+    }
+    val tankStarts = remember(fills) { fills.filter { it.full }.map { it.timeMs }.sortedDescending() }
 
-    val window = remember(period, offset, firstTrip, version) { com.abeernch.civicobd.core.Windows.of(period, offset, firstTripMs = firstTrip) }
+    val window = remember(period, offset, firstTrip, version, tankStarts) {
+        com.abeernch.civicobd.core.Windows.of(period, offset, firstTripMs = firstTrip, tankStarts = tankStarts)
+    }
     // Reload whenever the window changes or the service writes a trip.
     LaunchedEffect(window.startMs, window.endMs, version) {
         withContext(Dispatchers.IO) {
@@ -96,29 +112,51 @@ fun StatsScreen(
                 Dropdown(Period.entries.toList(), period, { it.label }, Type.title.copy(fontSize = Type.sz(24f))) {
                     period = it; offset = 0
                 }
-                // The exact dates, with arrows to step to the previous or next week, month or year.
-                StepRow(window.title, canBack = window.canStep, canForward = window.canStep && offset < 0,
+                // The exact dates, with arrows to step to the previous or next week, month, year or tank.
+                StepRow(window.title, canBack = window.canBack, canForward = window.canStep && offset < 0,
                     onBack = { offset-- }, onForward = { offset++ })
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Hairline))
                 Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Tile("Distance", fmt(total.distanceKm, 1), "km", Modifier.weight(1f))
-                    Tile("Fuel", fmt(total.fuelL, 2), "L", Modifier.weight(1f))
-                    Tile("Economy", fmt(total.kmPerL), "km/L", Modifier.weight(1f))
-                }
-                Row(Modifier.fillMaxWidth()) {
-                    Tile("Cost", fmt(total.cost, 0), "PKR", Modifier.weight(1f))
-                    Tile("Avg speed", fmt(total.avgSpeed), "km/h", Modifier.weight(1f))
-                    Tile("Drives", total.trips.toString(), "", Modifier.weight(1f))
-                }
-                Row(Modifier.fillMaxWidth()) {
-                    Tile("Total time", if (total.totalS > 0) duration(total.totalS) else "--", "", Modifier.weight(1f))
-                    Tile("Driving", if (total.totalS > 0) duration(total.driveS) else "--", "", Modifier.weight(1f))
-                    Tile("Standing", if (total.totalS > 0) duration(total.idleS) else "--", "", Modifier.weight(1f))
+                val empty = window.empty
+                if (empty != null) {
+                    Text(empty, style = Type.label, modifier = Modifier.padding(vertical = 12.dp))
+                } else {
+                    Row(Modifier.fillMaxWidth()) {
+                        Tile("Distance", fmt(total.distanceKm, 1), "km", Modifier.weight(1f))
+                        Tile("Fuel", fmt(total.fuelL, 2), "L", Modifier.weight(1f))
+                        Tile("Economy", fmt(total.kmPerL), "km/L", Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth()) {
+                        // After any carpooling share, what the driving came to.
+                        if (total.shared > 0) {
+                            Tile("Net cost", fmt(total.netCost, 0), "PKR", Modifier.weight(1f), color = if (total.netCost < 0) Lux.Green else Palette.Value)
+                        } else {
+                            Tile("Cost", fmt(total.cost, 0), "PKR", Modifier.weight(1f))
+                        }
+                        Tile("Avg speed", fmt(total.avgSpeed), "km/h", Modifier.weight(1f))
+                        Tile("Drives", total.trips.toString(), "", Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth()) {
+                        Tile("Total time", if (total.totalS > 0) duration(total.totalS) else "--", "", Modifier.weight(1f))
+                        Tile("Driving", if (total.totalS > 0) duration(total.driveS) else "--", "", Modifier.weight(1f))
+                        Tile("Standing", if (total.totalS > 0) duration(total.idleS) else "--", "", Modifier.weight(1f))
+                    }
+                    val notes = listOfNotNull(
+                        if (total.shared > 0) "Fuel ${rupees(total.cost)} · carpooling share ${rupees(total.shared)}." else null,
+                        // A finished tank: the distance over the litres that filled it again.
+                        if (period == com.abeernch.civicobd.core.Period.Tank && offset < 0) {
+                            fills.firstOrNull { it.full && it.timeMs == window.endMs }?.let { stretches[it.id] }?.let { st ->
+                                st.kmPerL?.let { "By the pump: ${fmt(it)} km/L, ${fmt(st.km, 0)} km on the ${fmt(st.pumpedL, 1)} L that filled it again." }
+                            }
+                        } else null,
+                        if (total.handAdded > 0) "Includes ${total.handAdded} drive${if (total.handAdded == 1) "" else "s"} added by hand. " +
+                            "Economy and speed are from recorded drives only." else null,
+                    )
+                    notes.forEach { Text(it, style = Type.label.copy(fontSize = Type.sz(14f)), modifier = Modifier.padding(top = 4.dp)) }
                 }
             }
         }
-        item {
+        if (window.empty == null) item {
             Column {
                 Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Dropdown(Metric.entries.toList(), metric, { it.label }, Type.section.copy(color = Palette.Value)) { metric = it }
@@ -129,7 +167,9 @@ fun StatsScreen(
             }
         }
         // Each drive is listed in the Trips tab; here only the totals, chart and export.
-        if (trips.isNotEmpty()) {
+        if (window.empty != null) {
+            // Nothing to chart or export yet.
+        } else if (trips.isNotEmpty()) {
             item {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     OutlineButton("Export these ${trips.size} drives as CSV") { onExportTrips(trips) }
@@ -161,7 +201,7 @@ private fun StepRow(title: String, canBack: Boolean, canForward: Boolean, onBack
 private fun valueOf(s: Summary, m: Metric): Double? = when (m) {
     Metric.Distance -> s.distanceKm
     Metric.Fuel -> s.fuelL
-    Metric.Cost -> s.cost
+    Metric.Cost -> s.netCost
     Metric.Economy -> s.kmPerL
     Metric.Speed -> s.avgSpeed
 }

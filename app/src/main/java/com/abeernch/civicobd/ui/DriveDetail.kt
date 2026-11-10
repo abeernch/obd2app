@@ -87,8 +87,10 @@ private enum class Plot(val label: String, val channel: String, val unit: String
 private data class EngineFigures(val avgRpm: Double?, val coolantMax: Double?, val idleFuelL: Double?)
 
 /**
- * One drive, with everything up front: the economy and route, six key figures with how this drive compares,
- * then the route map or a chart of any three readings on one plot, then the engine's figures.
+ * One drive, with everything up front: the economy and route, six key figures with how this drive compares
+ * and its carpooling share, then the route map or a chart of any three readings on one plot, then the
+ * engine's figures. A drive added by hand has only its distance, time, fuel and cost, and [onEdit] to
+ * correct it.
  */
 @Composable
 internal fun DriveDetail(
@@ -101,6 +103,8 @@ internal fun DriveDetail(
     onExport: (RecordingRow, ExportKind) -> Unit,
     onDelete: () -> Unit,
     onFullMap: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onShare: (Double, Int) -> Unit = { _, _ -> },
 ) {
     BackHandler(onBack = onBack)
     var summary by remember(trip.id) { mutableStateOf<TripSummary?>(null) }
@@ -115,7 +119,9 @@ internal fun DriveDetail(
             points = withContext(Dispatchers.IO) { Route.load(recordings, rec.id) }
             engine = withContext(Dispatchers.IO) { engineFigures(recordings, rec.id, channels) }
         }
-        route = withContext(Dispatchers.IO) { runCatching { RouteContexts.of(trip, store, recordings, routeNames(settings)) }.getOrNull() }
+        if (!trip.manual) {
+            route = withContext(Dispatchers.IO) { runCatching { RouteContexts.of(trip, store, recordings, routeNames(settings)) }.getOrNull() }
+        }
     }
 
     Column(
@@ -126,13 +132,18 @@ internal fun DriveDetail(
             .padding(top = 4.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        TopBar(rec, onBack, onExport, onDelete, onFullMap = if ((points?.size ?: 0) >= 2) onFullMap else null)
+        TopBar(rec, onBack, onExport, onDelete, onFullMap = if ((points?.size ?: 0) >= 2) onFullMap else null, onEdit = onEdit)
         Headline(trip, summary, route)
-        DetailsCard(trip, summary, route)
+        DetailsCard(trip, summary, route, settings, onShare)
         if (rec != null) MapChartCard(rec, recordings, settings, points, channels, onFullMap)
         engine?.takeIf { it.avgRpm != null || it.coolantMax != null || it.idleFuelL != null }?.let { EngineCard(it) }
-        if (rec == null) {
-            Text("This drive has no recording, only its totals.", style = Type.label, modifier = Modifier.padding(horizontal = 8.dp))
+        when {
+            trip.manual -> Text(
+                (if (trip.fuelEstimated) "Added by hand. Its fuel is estimated from your recent economy" else "Added by hand, with the litres entered") +
+                    ", so it is left out of economy, speed and route comparisons.",
+                style = Type.label, modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            rec == null -> Text("This drive has no recording, only its totals.", style = Type.label, modifier = Modifier.padding(horizontal = 8.dp))
         }
     }
 }
@@ -144,6 +155,7 @@ private fun TopBar(
     onExport: (RecordingRow, ExportKind) -> Unit,
     onDelete: () -> Unit,
     onFullMap: (() -> Unit)?,
+    onEdit: (() -> Unit)?,
 ) {
     var menu by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
@@ -155,7 +167,8 @@ private fun TopBar(
         Spacer(Modifier.weight(1f))
         Box {
             Box(
-                Modifier.size(44.dp).semantics { contentDescription = "More: map, export, delete" }.pressable { menu = true; confirm = false },
+                Modifier.size(44.dp).semantics { contentDescription = if (onEdit != null) "More: correct, delete" else "More: map, export, delete" }
+                    .pressable { menu = true; confirm = false },
                 contentAlignment = Alignment.Center,
             ) {
                 androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
@@ -167,6 +180,7 @@ private fun TopBar(
                 val item: @Composable (String, Color, () -> Unit) -> Unit = { text, color, action ->
                     DropdownMenuItem(text = { Text(text, style = Type.body.copy(color = color)) }, onClick = action)
                 }
+                onEdit?.let { edit -> item("Correct this drive", Palette.Value) { menu = false; edit() } }
                 onFullMap?.let { open -> item("Full-screen route map", Palette.Value) { menu = false; open() } }
                 if (rec != null) {
                     ExportKind.entries.forEach { kind -> item("Export: ${kind.label}", Palette.Value) { menu = false; onExport(rec, kind) } }
@@ -185,6 +199,22 @@ private fun Headline(trip: TripRow, summary: TripSummary?, route: RouteContext?)
     val day = SimpleDateFormat("EEE d MMM", Locale.US).format(Date(trip.startMs))
     val clock = SimpleDateFormat("HH:mm", Locale.US)
     val k = summary?.kmPerL ?: if (trip.fuelL > 0.01 && trip.distanceKm > 0.05) trip.distanceKm / trip.fuelL else null
+    if (trip.manual) {
+        // Added by hand: no measured economy to lead with, so its distance, and the note if there is one.
+        Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "$day · ${clock.format(Date(trip.startMs))}" + (if (trip.driveS > 0) " to ${clock.format(Date(trip.endMs))}" else "") + " · added by hand",
+                style = Type.label,
+            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(fmt(trip.distanceKm, 1), style = lux(64.sp, FontWeight.Light, Palette.Value).copy(lineHeight = 64.sp))
+                Text("  km", style = Type.label.copy(fontSize = Type.sz(18f)), modifier = Modifier.padding(bottom = 10.dp))
+            }
+            trip.note?.let { Text(it, style = Type.body.copy(fontSize = Type.sz(16f))) }
+            trip.odoStart?.let { a -> trip.odoEnd?.let { b -> Text("Odometer ${"%,d".format(a.roundToInt())} to ${"%,d".format(b.roundToInt())} km", style = Type.label) } }
+        }
+        return
+    }
     Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("$day · ${clock.format(Date(trip.startMs))} to ${clock.format(Date(trip.endMs))}", style = Type.label)
         Row(verticalAlignment = Alignment.Bottom) {
@@ -205,23 +235,26 @@ private fun Headline(trip: TripRow, summary: TripSummary?, route: RouteContext?)
 
 /** Six figures in two columns, white names over the values, then how the drive compares. */
 @Composable
-private fun DetailsCard(trip: TripRow, summary: TripSummary?, route: RouteContext?) {
+private fun DetailsCard(trip: TripRow, summary: TripSummary?, route: RouteContext?, settings: AppSettings, onShare: (Double, Int) -> Unit) {
     Card {
         Text("Drive details", style = Type.section.copy(color = Palette.Value, fontSize = Type.sz(19f)), modifier = Modifier.padding(horizontal = 6.dp))
         val avgSpeed = summary?.avgSpeed
-        val cells = listOf(
+        // A drive added by hand: its fuel and cost marked when estimated, and no speeds.
+        val approx = if (trip.manual && trip.fuelEstimated) "≈ " else ""
+        val cells = listOfNotNull(
             Triple("Distance", fmt(trip.distanceKm, 1), "km"),
-            Triple("Drive time", clockTime(trip.driveS + trip.idleS), ""),
-            Triple("Fuel used", fmt(trip.fuelL, 2), "L"),
-            Triple("Cost", "%,d".format(trip.cost.roundToInt()), "Rs"),
-            Triple("Avg speed", fmt(avgSpeed, 1), "km/h"),
-            Triple("Top speed", fmt(trip.maxSpeed, 0), "km/h"),
+            Triple("Drive time", if (trip.driveS + trip.idleS > 0) clockTime(trip.driveS + trip.idleS) else "--", ""),
+            Triple("Fuel used", approx + fmt(trip.fuelL, 2), "L"),
+            Triple("Cost", approx + "%,d".format(trip.cost.roundToInt()), "Rs"),
+            if (trip.manual) null else Triple("Avg speed", fmt(avgSpeed, 1), "km/h"),
+            if (trip.manual) null else Triple("Top speed", fmt(trip.maxSpeed, 0), "km/h"),
         )
         cells.chunked(2).forEach { pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 pair.forEach { (name, value, unit) -> DetailTile(name, value, unit, Modifier.weight(1f), unitFirst = name == "Cost") }
             }
         }
+        ShareLine(trip, settings, Modifier.padding(horizontal = 2.dp), onSave = onShare)
         val k = summary?.kmPerL
         RouteContexts.comparison(k, route?.usualKmL, summary?.averageKmL)?.let { (text, good) ->
             Text(

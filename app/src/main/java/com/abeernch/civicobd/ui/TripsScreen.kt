@@ -32,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.abeernch.civicobd.core.AppSettings
 import com.abeernch.civicobd.core.ColorScale
@@ -46,6 +49,7 @@ import com.abeernch.civicobd.core.TripRow
 import com.abeernch.civicobd.core.TripStore
 import com.abeernch.civicobd.core.TripSummary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -63,6 +67,8 @@ private val clockFmt get() = SimpleDateFormat("HH:mm", Locale.US)
 @Composable
 fun TripsScreen(
     store: TripStore,
+    fuel: com.abeernch.civicobd.core.FuelLog,
+    liveTrip: com.abeernch.civicobd.core.TripTotals,
     recordings: Recordings,
     version: Int,
     settings: AppSettings,
@@ -80,12 +86,22 @@ fun TripsScreen(
     var open by remember { mutableStateOf<TripRow?>(null) }
     var mapFor by remember { mutableStateOf<RecordingRow?>(null) }
     var heatOpen by remember { mutableStateOf(false) }
+    // The form for a drive added by hand: open, and the drive being corrected (null for a new one).
+    var formOpen by remember { mutableStateOf(false) }
+    var formFor by remember { mutableStateOf<TripRow?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(version) {
         withContext(Dispatchers.IO) {
             trips = store.between(0, Long.MAX_VALUE)
             recs = recordings.all().mapNotNull { r -> r.tripId?.let { it to r } }.toMap()
         }
+    }
+    // The open drive follows the list as it reloads (a carpooling share saved, a correction, the drive
+    // in progress saved again), and closes if it is gone.
+    LaunchedEffect(trips) {
+        open?.let { o -> open = trips.firstOrNull { it.id == o.id } }
     }
     // Opened from a trip-summary notification.
     LaunchedEffect(openTripId, trips) {
@@ -105,6 +121,15 @@ fun TripsScreen(
         AllDrivesMap(recordings, version, settings) { heatOpen = false }
         return
     }
+    // Adding a drive by hand, or correcting one. Once saved, its page opens.
+    if (formOpen) {
+        AddDriveScreen(store, fuel, settings, liveTrip, formFor) { saved ->
+            formOpen = false
+            formFor = null
+            if (saved != null) open = saved
+        }
+        return
+    }
     // One drive: its figures up front, then the map or a chart, then the engine.
     open?.let { trip ->
         val rec = recs[trip.id]
@@ -114,6 +139,15 @@ fun TripsScreen(
             onExport = { r, kind -> onExport(r, emptyList(), kind) },
             onDelete = { onDelete(trip, rec); open = null },
             onFullMap = { rec?.let { mapFor = it } },
+            onEdit = if (trip.manual) ({ formFor = trip; formOpen = true }) else null,
+            onShare = { total, count ->
+                scope.launch {
+                    withContext(Dispatchers.IO) { store.setShare(trip.id, total, count) }
+                    open = trip.copy(shared = total, passengers = count)
+                    com.abeernch.civicobd.core.LiveBus.tripsChanged()
+                    com.abeernch.civicobd.widget.TripWidget.refresh(context)
+                }
+            },
         )
         return
     }
@@ -127,7 +161,16 @@ fun TripsScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             SegmentSwitch(listOf("Drives", "Routes"), view.toFloat()) { view = it; stopPicking() }
             Spacer(Modifier.weight(1f))
-            if (view == 0 && trips.size >= 2) {
+            if (view == 0 && !picking) {
+                // A drive the app did not record.
+                Box(
+                    Modifier.size(40.dp).clip(RoundedCornerShape(20.dp))
+                        .semantics { contentDescription = "Add a drive" }
+                        .pressable { formFor = null; formOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) { IconPlus(Palette.Accent, 22.dp) }
+            }
+            if (view == 0 && trips.count { !it.manual } >= 2) {
                 Text(
                     if (picking) "Cancel" else "Select",
                     style = Type.body.copy(color = Palette.Accent),
@@ -141,10 +184,11 @@ fun TripsScreen(
                     trips, recs, picking, picked, activeTripId,
                     onOpen = { t ->
                         if (picking) {
-                            if (t.id != activeTripId) picked = if (t.id in picked) picked - t.id else picked + t.id
+                            if (t.id != activeTripId && !t.manual) picked = if (t.id in picked) picked - t.id else picked + t.id
                         } else open = t
                     },
-                    onLongPress = { t -> if (t.id != activeTripId) { picking = true; picked = picked + t.id } },
+                    // Only recorded drives can be joined: not the one still being recorded, nor one added by hand.
+                    onLongPress = { t -> if (t.id != activeTripId && !t.manual) { picking = true; picked = picked + t.id } },
                 )
             }
             if (picking) {
@@ -189,13 +233,20 @@ private fun DriveList(
     ) {
         if (trips.isEmpty()) {
             item { Text("No drives yet. They are recorded automatically once the car connects.", style = Type.label) }
-        } else if (!picking && trips.size >= 2) {
+        } else if (!picking && trips.count { !it.manual } >= 2) {
             item { Text("Hold a drive to select drives to merge.", style = Type.label.copy(fontSize = Type.sz(13f))) }
         }
         items(trips, key = { it.id }) { t ->
             DriveCard(
                 t, recs[t.id]?.source,
-                pick = if (!picking) null else if (t.id == activeTripId) false to true else (t.id in picked) to false,
+                picking = picking,
+                picked = t.id in picked,
+                lock = when {
+                    !picking -> null
+                    t.id == activeTripId -> "live"
+                    t.manual -> "by hand"
+                    else -> null
+                },
                 onClick = { onOpen(t) },
                 onLongClick = { onLongPress(t) },
             )
@@ -204,15 +255,24 @@ private fun DriveList(
 }
 
 /**
- * One drive in the list. [pick] is null when not selecting, otherwise (picked, locked):
- * a locked drive is the one still being recorded, which cannot be merged.
+ * One drive in the list. While selecting, [picked] says whether it is chosen, and [lock] why it cannot be
+ * (the drive still being recorded, or one added by hand), shown in place of its tick box.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun DriveCard(t: TripRow, source: String?, pick: Pair<Boolean, Boolean>?, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val kml = if (t.fuelL > 0.01 && t.distanceKm > 0.05) t.distanceKm / t.fuelL else null
+private fun DriveCard(
+    t: TripRow,
+    source: String?,
+    picking: Boolean,
+    picked: Boolean,
+    lock: String?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    // A drive added by hand has no measured economy, and a time only if one was entered.
+    val kml = if (!t.manual && t.fuelL > 0.01 && t.distanceKm > 0.05) t.distanceKm / t.fuelL else null
     val minutes = ((t.endMs - t.startMs) / 60_000).coerceAtLeast(0)
-    val on = pick?.first == true
+    val on = picking && picked
     Row(
         Modifier
             .fillMaxWidth()
@@ -223,34 +283,47 @@ private fun DriveCard(t: TripRow, source: String?, pick: Pair<Boolean, Boolean>?
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (pick != null) {
-            // A round tick box; the drive still being recorded shows none.
-            if (!pick.second) {
+        if (picking) {
+            if (lock == null) {
+                // A round tick box.
                 Box(
                     Modifier.size(22.dp).clip(androidx.compose.foundation.shape.CircleShape)
                         .background(if (on) Palette.Accent else androidx.compose.ui.graphics.Color.Transparent)
                         .border(1.5.dp, if (on) Palette.Accent else Palette.Label, androidx.compose.foundation.shape.CircleShape)
                 )
             } else {
-                Text("live", style = Type.label.copy(fontSize = Type.sz(12f)))
+                Text(lock, style = Type.label.copy(fontSize = Type.sz(12f)))
             }
             Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(dayFmt.format(Date(t.startMs)), style = Type.body)
-                if (source != null && source != "Live") {
+                val tag = if (t.manual) "Added by hand" else source?.takeIf { it != "Live" }
+                if (tag != null) {
                     Spacer(Modifier.width(8.dp))
-                    Text(source, style = Type.label.copy(fontSize = Type.sz(12f)))
+                    Text(tag, style = Type.label.copy(fontSize = Type.sz(12f)))
                 }
             }
-            Text(
-                "${clockFmt.format(Date(t.startMs))}  ·  ${fmt(t.distanceKm, 1)} km  ·  $minutes min  ·  Rs " + "%,d".format(t.cost.toLong()),
-                style = Type.label,
-            )
+            val line = androidx.compose.ui.text.buildAnnotatedString {
+                append(clockFmt.format(Date(t.startMs)))
+                append("  ·  ${fmt(t.distanceKm, 1)} km")
+                if (!t.manual || t.driveS > 0) append("  ·  $minutes min")
+                // An estimate is marked as one; with a carpooling share, what the drive came to after it.
+                val approx = if (t.manual && t.fuelEstimated) "≈ " else ""
+                if (t.shared > 0) {
+                    append("  ·  net ")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = if (t.netCost < 0) Lux.Green else Palette.Label)) {
+                        append(approx + rupees(t.netCost))
+                    }
+                } else {
+                    append("  ·  " + approx + rupees(t.cost))
+                }
+            }
+            Text(line, style = Type.label)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(fmt(kml), style = Type.value.copy(fontSize = Type.sz(26f), lineHeight = Type.sz(28f)))
+            Text(fmt(kml), style = Type.value.copy(fontSize = Type.sz(26f), lineHeight = Type.sz(28f), color = if (kml == null) Palette.Label else Palette.Value))
             Text("km/L", style = Type.label.copy(fontSize = Type.sz(12f)))
         }
     }

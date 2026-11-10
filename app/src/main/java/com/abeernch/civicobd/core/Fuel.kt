@@ -28,10 +28,16 @@ data class Tank(
     val rangeKm: Double?,          // distance to empty
 )
 
+/** Fuel the app counted over a stretch of time, and whether a drive added by hand (its fuel estimated) is in it. */
+internal data class Counted(val litres: Double, val handAdded: Boolean = false)
+
 /** A full tank compared with the previous full tank: litres the app counted in between, and litres pumped. */
-internal data class Comparison(val counted: Double, val pumped: Double) {
-    /** Too little counted in between to say anything about the fuel count. */
-    val calibrates: Boolean get() = counted >= 3.0
+internal data class Comparison(val counted: Double, val pumped: Double, val handAdded: Boolean = false) {
+    /**
+     * Whether it can correct the fuel count: not with too little counted in between, and not over a stretch
+     * with a drive added by hand, whose estimated fuel would be blamed on the app's own counting.
+     */
+    val calibrates: Boolean get() = counted >= 3.0 && !handAdded
 
     /** The correction after this tank, starting from [before]. */
     fun factorFrom(before: Double): Double = (before * (pumped / counted).coerceIn(0.6, 1.6)).coerceIn(0.5, 2.0)
@@ -41,16 +47,57 @@ internal data class Comparison(val counted: Double, val pumped: Double) {
  * The comparison [f] makes, if it is a full tank with a full tank before it. [others] are the other
  * fill-ups, newest first; [countedBetween] is the fuel the app counted between two times.
  */
-internal fun compare(f: Fillup, others: List<Fillup>, countedBetween: (Long, Long) -> Double): Comparison? {
+internal fun compare(f: Fillup, others: List<Fillup>, countedBetween: (Long, Long) -> Counted): Comparison? {
     if (!f.full) return null
     val previousFull = others.firstOrNull { it.full && it.timeMs < f.timeMs } ?: return null
     // Every litre added after the previous full fill, partial fills included.
     val pumped = others.filter { it.timeMs > previousFull.timeMs && it.timeMs < f.timeMs }.sumOf { it.litres } + f.litres
-    return Comparison(countedBetween(previousFull.timeMs, f.timeMs), pumped)
+    val counted = countedBetween(previousFull.timeMs, f.timeMs)
+    return Comparison(counted.litres, pumped, counted.handAdded)
+}
+
+/**
+ * The tank from [fills] (newest first) and [trips], the drives since the last full fill-up (or of the
+ * last two weeks when there is none). See [FuelLog.tank].
+ */
+internal fun tankOf(fills: List<Fillup>, trips: List<TripRow>, tankL: Double, liveTripL: Double, liveTripKm: Double, activeTripId: Long): Tank {
+    val since = fills.firstOrNull { it.full }?.timeMs
+    val counted = trips.filter { it.id != activeTripId && (since == null || it.startMs >= since) }
+    val added = if (since != null) fills.filter { it.timeMs > since }.sumOf { it.litres } else 0.0
+    val used = counted.sumOf { it.fuelL } + liveTripL
+    val recorded = counted.filter { !it.manual }
+    val km = recorded.sumOf { it.distanceKm } + liveTripKm
+    val measuredL = recorded.sumOf { it.fuelL } + liveTripL
+    val kmPerL = if (measuredL > 0.3 && km > 3) km / measuredL else null
+    val left = if (since != null) (tankL - used + added).coerceIn(0.0, tankL) else null
+    return Tank(since, used, left, kmPerL, if (left != null && kmPerL != null) left * kmPerL else null)
+}
+
+/** One full tank to the next: the distance it covered and the economy the pump gives for it. */
+data class TankStretch(val km: Double, val pumpedL: Double, val handAdded: Boolean) {
+    /** Distance over the litres that refilled it: the most direct measure of economy there is. */
+    val kmPerL: Double? get() = if (pumpedL > 0.5 && km > 1.0) km / pumpedL else null
+}
+
+/**
+ * The tank each full fill-up closed, keyed by its id: from the previous full fill-up to this one.
+ * [distanceBetween] gives the distance driven between two times, drives added by hand included (they
+ * burned fuel the pump put back), and whether any is in it.
+ */
+internal fun stretches(fills: List<Fillup>, distanceBetween: (Long, Long) -> Pair<Double, Boolean>): Map<Long, TankStretch> {
+    val out = mutableMapOf<Long, TankStretch>()
+    for (f in fills) {
+        if (!f.full) continue
+        val previousFull = fills.firstOrNull { it.full && it.timeMs < f.timeMs } ?: continue
+        val pumped = fills.filter { it.timeMs > previousFull.timeMs && it.timeMs < f.timeMs }.sumOf { it.litres } + f.litres
+        val (km, handAdded) = distanceBetween(previousFull.timeMs, f.timeMs)
+        out[f.id] = TankStretch(km, pumped, handAdded)
+    }
+    return out
 }
 
 /** The correction [f] started from: kept since this build, or worked back from its comparison for older records. */
-internal fun factorBefore(f: Fillup, others: List<Fillup>, countedBetween: (Long, Long) -> Double): Double? {
+internal fun factorBefore(f: Fillup, others: List<Fillup>, countedBetween: (Long, Long) -> Counted): Double? {
     f.factorBefore?.let { return it }
     val after = f.factorAfter ?: return null
     val c = compare(f, others, countedBetween)?.takeIf { it.calibrates } ?: return null
@@ -82,7 +129,7 @@ internal fun changeFillup(
     factorNow: Double,
     priceNow: Double,
     odometerAtMs: Long,
-    countedBetween: (Long, Long) -> Double,
+    countedBetween: (Long, Long) -> Counted,
 ): FillupChange {
     val newestFull = others.none { it.full && it.timeMs > old.timeMs }
     val newest = others.none { it.timeMs > old.timeMs }
@@ -145,7 +192,13 @@ class FuelLog(private val store: TripStore) {
         return out
     }
 
-    private fun countedBetween(fromMs: Long, toMs: Long): Double = store.between(fromMs, toMs).sumOf { it.fuelL }
+    private fun countedBetween(fromMs: Long, toMs: Long): Counted =
+        store.between(fromMs, toMs).let { trips -> Counted(trips.sumOf { it.fuelL }, trips.any { it.manual }) }
+
+    /** The tank each full fill-up closed: distance and economy by the pump. See [stretches]. */
+    fun tankStretches(fills: List<Fillup> = all()): Map<Long, TankStretch> = stretches(fills) { from, to ->
+        store.between(from, to).let { trips -> trips.sumOf { it.distanceKm } to trips.any { it.manual } }
+    }
 
     private fun values(f: Fillup) = ContentValues().apply {
         put("time_ms", f.timeMs)
@@ -216,18 +269,17 @@ class FuelLog(private val store: TripStore) {
         }
     }
 
-    /** Fuel left and range, from the last full fill plus everything counted since. [liveTripL] is the trip in progress. */
-    fun tank(tankL: Double, liveTripL: Double, liveTripKm: Double, now: Long = System.currentTimeMillis()): Tank {
+    /**
+     * Fuel left and range, from the last full fill plus everything counted since. [liveTripL] and
+     * [liveTripKm] are the drive in progress, [activeTripId] its saved row: that row is left out, so the
+     * drive counts once, from its live totals. Drives added by hand count towards fuel used (their fuel
+     * is an estimate, but it did leave the tank); economy, and so range, comes from recorded drives only.
+     */
+    fun tank(tankL: Double, liveTripL: Double, liveTripKm: Double, activeTripId: Long = -1, now: Long = System.currentTimeMillis()): Tank {
         val fills = all()
-        val lastFull = fills.firstOrNull { it.full }
-        val since = lastFull?.timeMs
+        val since = fills.firstOrNull { it.full }?.timeMs
         val trips = if (since != null) store.between(since, now) else store.between(now - 14L * 86_400_000, now)
-        val added = if (since != null) fills.filter { it.timeMs > since }.sumOf { it.litres } else 0.0
-        val used = trips.sumOf { it.fuelL } + liveTripL
-        val km = trips.sumOf { it.distanceKm } + liveTripKm
-        val kmPerL = if (used > 0.3 && km > 3) km / used else null
-        val left = if (since != null) (tankL - used + added).coerceIn(0.0, tankL) else null
-        return Tank(since, used, left, kmPerL, if (left != null && kmPerL != null) left * kmPerL else null)
+        return tankOf(fills, trips, tankL, liveTripL, liveTripKm, activeTripId)
     }
 }
 

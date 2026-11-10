@@ -587,7 +587,7 @@ class ObdService : Service() {
     private fun openTrip(now: Long) {
         // A drive that stopped less than 10 minutes ago, and was not ended by hand, carries on:
         // the same trip, recording and route. This also covers the app being stopped while parked.
-        val last = store.between(0, Long.MAX_VALUE).firstOrNull()
+        val last = store.between(0, Long.MAX_VALUE).firstOrNull { !it.manual }
         val lastRec = last?.let { recordings.forTrip(it.id) }
         if (last != null && lastRec != null && lastRec.source == "Live" && last.id != settings.endedTripId &&
             now >= last.endMs && now - last.endMs < CONTINUE_MS

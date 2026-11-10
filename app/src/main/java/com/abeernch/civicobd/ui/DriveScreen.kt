@@ -76,6 +76,7 @@ import com.abeernch.civicobd.core.LiveState
 import com.abeernch.civicobd.core.RouteContext
 import com.abeernch.civicobd.core.RouteContexts
 import com.abeernch.civicobd.core.Summary
+import com.abeernch.civicobd.core.TripRow
 import com.abeernch.civicobd.core.Tank
 import com.abeernch.civicobd.core.TripSummary
 import kotlinx.coroutines.delay
@@ -131,13 +132,14 @@ fun DriveScreen(
     introAtMs: Long = 0L,
     onIntroDone: () -> Unit = {},
     onLocation: () -> Unit = {},
+    onShare: (TripRow, Double, Int) -> Unit = { _, _, _ -> },
 ) {
     val paused = live.trip.active && live.tripPaused
     // The page's soft dark gradient is painted by the app shell, behind the title bar too.
     Box(Modifier.fillMaxSize()) {
         when {
             paused -> FadeIn("parked") { ParkedView(live, today, locationOk, onHud, onLocation) }
-            !live.trip.active && completed != null -> Goodbye(completed, today, onGoodbyePlayed, onViewDrive)
+            !live.trip.active && completed != null -> Goodbye(completed, today, settings, onGoodbyePlayed, onViewDrive, onShare)
             !live.trip.active && goodbyePending -> Unit // the drive's figures are loading: a moment of quiet
             else -> FadeIn("instruments") { Instruments(live, tank, settings, locationOk, onHud, introAtMs, onIntroDone, onLocation) }
         }
@@ -658,7 +660,14 @@ private fun TodayLine(today: Summary, modifier: Modifier = Modifier) {
 // ---------------------------------------------------------------- the goodbye
 
 @Composable
-private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onViewDrive: (Long) -> Unit) {
+private fun Goodbye(
+    c: CompletedDrive,
+    today: Summary,
+    settings: AppSettings,
+    onPlayed: () -> Unit,
+    onViewDrive: (Long) -> Unit,
+    onShare: (TripRow, Double, Int) -> Unit,
+) {
     val trip = c.summary.trip
     // Decided once: the clip plays the first time this goodbye is seen; after that the car rests dark.
     val playing = remember(trip.id) { !c.played }
@@ -751,6 +760,10 @@ private fun Goodbye(c: CompletedDrive, today: Summary, onPlayed: () -> Unit, onV
                 style = lux(12.sp, FontWeight.Light, Lux.Sub).copy(textAlign = TextAlign.Center),
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
+            // Right after the drive is when a carpool is settled: one quiet line, opened in place.
+            ShareLine(trip, settings, Modifier.padding(top = 10.dp), quiet = lux(13.sp, FontWeight.Light, Lux.Sub, 0.3.sp), inline = false) { total, count ->
+                onShare(trip, total, count)
+            }
         }
     }
     val lastIn = span(t, 5.8f, 6.5f)

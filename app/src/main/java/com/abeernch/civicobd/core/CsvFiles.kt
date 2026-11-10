@@ -240,9 +240,14 @@ object CsvExport {
         val file = File(dir, "trips_" + stamp(System.currentTimeMillis()) + ".csv")
         val f = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         file.bufferedWriter().use { w ->
-            w.write("Start;End;Distance km;Fuel L;Economy km/L;Cost PKR;Driving min;Standing min;Top speed km/h\r\n")
+            // New columns go at the end, so files read by the earlier layout still line up.
+            w.write(
+                "Start;End;Distance km;Fuel L;Economy km/L;Cost PKR;Driving min;Standing min;Top speed km/h;" +
+                    "Carpool passengers;Carpooling share PKR;Net cost PKR;Added by hand;Fuel estimated;Note\r\n"
+            )
             for (t in trips.sortedBy { it.startMs }) {
-                val economy = if (t.fuelL > 0.01) t.distanceKm / t.fuelL else 0.0
+                // A drive added by hand has no measured economy.
+                val economy = if (!t.manual && t.fuelL > 0.01) t.distanceKm / t.fuelL else 0.0
                 w.write(
                     listOf(
                         f.format(Date(t.startMs)), f.format(Date(t.endMs)),
@@ -250,6 +255,9 @@ object CsvExport {
                         "%.2f".format(Locale.US, economy), "%.0f".format(Locale.US, t.cost),
                         "%.1f".format(Locale.US, t.driveS / 60), "%.1f".format(Locale.US, t.idleS / 60),
                         "%.0f".format(Locale.US, t.maxSpeed),
+                        t.passengers.toString(), "%.0f".format(Locale.US, t.shared), "%.0f".format(Locale.US, t.netCost),
+                        if (t.manual) "yes" else "no", if (t.fuelEstimated) "yes" else "no",
+                        q((t.note ?: "").replace("\r", " ").replace("\n", " ")),
                     ).joinToString(";")
                 )
                 w.write("\r\n")

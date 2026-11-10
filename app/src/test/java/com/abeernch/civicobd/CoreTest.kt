@@ -367,7 +367,7 @@ class CoreTest {
         id = 3, timeMs = 9 * day, litres = 23.0, price = 265.0, full = true, odometer = 50_400.0,
         appLitres = 30.0, factorBefore = 1.0, factorAfter = 1.1,
     )
-    private val counted: (Long, Long) -> Double = { _, _ -> 30.0 }
+    private val counted: (Long, Long) -> com.abeernch.civicobd.core.Counted = { _, _ -> com.abeernch.civicobd.core.Counted(30.0) }
 
     @Test
     fun fillupComparisonCountsPartialFillsInBetween() {
@@ -436,5 +436,234 @@ class CoreTest {
         // A newer odometer reading (typed in Settings since) is not replaced by an older fill-up's.
         val later = com.abeernch.civicobd.core.changeFillup(newest, newest.copy(odometer = 50_450.0), listOf(partial, first), 1.1, 265.0, 10 * day, counted)
         assertEquals(null, later.odometerKm)
+    }
+
+    // ---- Drives added by hand, carpooling share, tanks
+
+    private fun drive(id: Long, startDay: Double, km: Double, litres: Double, manual: Boolean = false, shared: Double = 0.0, minutes: Double = 30.0) =
+        com.abeernch.civicobd.core.TripRow(
+            id = id, startMs = (startDay * day).toLong(), endMs = (startDay * day).toLong() + (minutes * 60_000).toLong(),
+            distanceKm = km, fuelL = litres, cost = litres * 300.0, driveS = minutes * 60, manual = manual, shared = shared,
+        )
+
+    @Test
+    fun handAddedDrivesCountInTotalsButNotInEconomy() {
+        val recorded = drive(1, 1.0, 100.0, 8.0, minutes = 120.0)   // 12.5 km/L, 50 km/h
+        val byHand = drive(2, 2.0, 60.0, 2.0, manual = true, minutes = 30.0) // an estimate: 30 km/L, 120 km/h
+        val s = com.abeernch.civicobd.core.Summary.of(listOf(recorded, byHand))
+        assertEquals(2, s.trips)
+        assertEquals(160.0, s.distanceKm, 1e-9)
+        assertEquals(10.0, s.fuelL, 1e-9)
+        assertEquals(3000.0, s.cost, 1e-9)
+        assertEquals(1, s.handAdded)
+        assertEquals(12.5, s.kmPerL!!, 1e-9)  // the recorded drive alone
+        assertEquals(50.0, s.avgSpeed!!, 1e-9)
+        // Its own page shows no economy or speed either.
+        assertEquals(null, com.abeernch.civicobd.core.TripSummary(byHand, 12.5).kmPerL)
+        assertEquals(null, com.abeernch.civicobd.core.TripSummary(byHand, 12.5).avgSpeed)
+        // Only drives added by hand: no economy at all, rather than an estimate's.
+        assertEquals(null, com.abeernch.civicobd.core.Summary.of(listOf(byHand)).kmPerL)
+    }
+
+    @Test
+    fun carpoolingShareComesOffTheCost() {
+        val trip = drive(1, 1.0, 25.0, 2.0, shared = 800.0) // fuel Rs 600, carpooling share Rs 800
+        assertEquals(-200.0, trip.netCost, 1e-9)
+        val s = com.abeernch.civicobd.core.Summary.of(listOf(trip, drive(2, 2.0, 25.0, 2.0)))
+        assertEquals(1200.0, s.cost, 1e-9)    // fuel
+        assertEquals(800.0, s.shared, 1e-9)
+        assertEquals(400.0, s.netCost, 1e-9)
+    }
+
+    @Test
+    fun aStretchWithAHandAddedDriveDoesNotCorrectTheFuelCount() {
+        val withHand: (Long, Long) -> com.abeernch.civicobd.core.Counted = { _, _ -> com.abeernch.civicobd.core.Counted(30.0, handAdded = true) }
+        val c = com.abeernch.civicobd.core.compare(newest, listOf(partial, first), withHand)!!
+        assertEquals(false, c.calibrates)
+        // Correcting such a fill-up leaves the correction alone, and keeps the comparison for the record.
+        val change = com.abeernch.civicobd.core.changeFillup(newest.copy(factorAfter = null, factorBefore = null), newest.copy(litres = 26.0),
+            listOf(partial, first), 1.0, 265.0, 9 * day, withHand)
+        assertEquals(null, change.factor)
+        assertEquals(30.0, change.saved!!.appLitres!!, 1e-9)
+        assertEquals(null, change.saved!!.factorAfter)
+    }
+
+    @Test
+    fun eachFullTankGivesItsEconomyByThePump() {
+        // 412 km between the first and the newest full tank; the pump put back 10 + 23 = 33 L.
+        val map = com.abeernch.civicobd.core.stretches(listOf(newest, partial, first)) { _, _ -> 412.0 to false }
+        val tank = map[newest.id]!!
+        assertEquals(412.0, tank.km, 1e-9)
+        assertEquals(33.0, tank.pumpedL, 1e-9)
+        assertEquals(412.0 / 33.0, tank.kmPerL!!, 1e-9)
+        // The first full tank and a partial fill close no tank.
+        assertEquals(null, map[first.id])
+        assertEquals(null, map[partial.id])
+    }
+
+    @Test
+    fun theTankCountsTheDriveInProgressOnce() {
+        val full = com.abeernch.civicobd.core.Fillup(id = 1, timeMs = 1 * day, litres = 40.0, price = 300.0, full = true, odometer = null)
+        val done = drive(10, 2.0, 120.0, 10.0)
+        // The drive in progress is saved every few seconds: its row (6 L so far) and its live total (6.2 L).
+        val inProgress = drive(11, 3.0, 70.0, 6.0)
+        val tank = com.abeernch.civicobd.core.tankOf(listOf(full), listOf(inProgress, done), 50.0, 6.2, 72.0, activeTripId = 11)
+        assertEquals(16.2, tank.usedL, 1e-9)                // 10 + 6.2, not 10 + 6 + 6.2
+        assertEquals(50.0 - 16.2, tank.leftL!!, 1e-9)
+        assertEquals((120.0 + 72.0) / 16.2, tank.kmPerL!!, 1e-9)
+        // A drive added by hand: its fuel left the tank, but its economy is an estimate.
+        val byHand = drive(12, 2.5, 60.0, 4.0, manual = true)
+        val withHand = com.abeernch.civicobd.core.tankOf(listOf(full), listOf(byHand, done), 50.0, 0.0, 0.0, activeTripId = -1)
+        assertEquals(14.0, withHand.usedL, 1e-9)
+        assertEquals(12.0, withHand.kmPerL!!, 1e-9)        // 120 km on 10 L, the recorded drive
+        // And the odometer, the same way.
+        assertEquals(50_000.0 + 120.0 + 72.0, com.abeernch.civicobd.core.Car.odometerOf(50_000.0, listOf(inProgress, done), 72.0, 11), 1e-9)
+    }
+
+    @Test
+    fun handAddedDriveFigures() {
+        val hd = com.abeernch.civicobd.core.HandDrives
+        // Odometer now: what it shows, less what the app expects.
+        assertEquals(56.0, hd.missingKm(123_456.0, 123_400.0)!!, 1e-9)
+        assertEquals(null, hd.missingKm(123_400.0, 123_400.0))   // nothing unrecorded
+        assertEquals(null, hd.missingKm(123_300.0, 123_400.0))   // behind the app's count: nothing to add
+        assertEquals(null, hd.missingKm(200_000.0, 123_400.0))   // a mistyped reading
+        assertEquals(56.0, hd.between(123_400.0, 123_456.0)!!, 1e-9)
+        assertEquals(null, hd.between(123_456.0, 123_400.0))
+        // Fuel from recent economy, at the price paid at the time.
+        assertEquals(4.0, hd.estimateFuel(50.0, 12.5), 1e-9)
+        val fills = listOf(newest, partial, first)                // 265 on day 9, 262 on day 5, 260 on day 1
+        assertEquals(262.0, hd.priceAt(fills, 6 * day, 300.0), 1e-9)
+        assertEquals(265.0, hd.priceAt(fills, 9 * day, 300.0), 1e-9)
+        assertEquals(300.0, hd.priceAt(fills, day / 2, 300.0), 1e-9) // before any fill-up: the price in use
+        // Recent economy: the 30 days before, else every recorded drive; never from drives added by hand.
+        val older = listOf(drive(1, 1.0, 100.0, 8.0), drive(2, 2.0, 60.0, 1.0, manual = true))
+        assertEquals(12.5, hd.recentKmPerL(emptyList(), older)!!, 1e-9)
+        assertEquals(null, hd.recentKmPerL(emptyList(), listOf(drive(2, 2.0, 60.0, 1.0, manual = true))))
+        // The drive saved: estimated fuel is flagged, entered fuel is not; minutes set its end.
+        val est = hd.build(startMs = 10 * day, km = 50.0, minutes = 45.0, litres = null, estimatedL = 4.0, pricePerL = 300.0,
+            note = "  Brother took the car ", odoStart = null, odoEnd = null)
+        assertEquals(true, est.manual)
+        assertEquals(true, est.fuelEstimated)
+        assertEquals(1200.0, est.cost, 1e-9)
+        assertEquals(10 * day + 45 * 60_000L, est.endMs)
+        assertEquals("Brother took the car", est.note)
+        val typed = hd.build(startMs = 10 * day, km = 50.0, minutes = null, litres = 3.5, estimatedL = 4.0, pricePerL = 300.0,
+            note = " ", odoStart = 1.0, odoEnd = 51.0)
+        assertEquals(false, typed.fuelEstimated)
+        assertEquals(3.5, typed.fuelL, 1e-9)
+        assertEquals(typed.startMs, typed.endMs)
+        assertEquals(null, typed.note)
+        // The odometer kept: a reading off the dashboard now always; an after-reading only if as recent.
+        val D = com.abeernch.civicobd.core.HandDrives.Distance.OdometerNow
+        val from = 10 * day - 3_600_000
+        assertEquals(123_456.0 to 20 * day, hd.odometerToKeep(D, 123_456.0, null, from, 10 * day, 20 * day, 15 * day))
+        assertEquals(51.0 to 10 * day, hd.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.BeforeAfter, null, 51.0, from, 10 * day, 20 * day, 9 * day))
+        assertEquals(null, hd.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.BeforeAfter, null, 51.0, from, 10 * day, 20 * day, 12 * day))
+        assertEquals(null, hd.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.Kilometres, null, null, from, 10 * day, 20 * day, 9 * day))
+    }
+
+    @Test
+    fun thisTankStepsBackTankByTank() {
+        val w = com.abeernch.civicobd.core.Windows
+        val now = 20 * day + 13 * 3_600_000L
+        // No full tank yet: nothing to show, and it says why.
+        val none = w.of(com.abeernch.civicobd.core.Period.Tank, 0, now)
+        assertEquals(true, none.empty != null)
+        assertEquals(false, none.canBack)
+        val starts = listOf(17 * day + 22 * 3_600_000L, 10 * day + 8 * 3_600_000L) // full tanks, newest first
+        val current = w.of(com.abeernch.civicobd.core.Period.Tank, 0, now, tankStarts = starts)
+        assertEquals(starts[0], current.startMs)
+        assertEquals(now + 1, current.endMs)
+        assertEquals(true, current.title.startsWith("Since "))
+        assertEquals(true, current.canBack)
+        assertEquals(null, current.empty)
+        // A bar for each day since, covering the tank from its start to now (days are local, so how many
+        // depends on where midnight falls).
+        assertEquals(true, current.slots.first().startMs <= starts[0])
+        assertEquals(true, current.slots.last().endMs >= now)
+        assertEquals(true, current.slots.all { it.endMs - it.startMs in 23 * 3_600_000L..25 * 3_600_000L })
+        val before = w.of(com.abeernch.civicobd.core.Period.Tank, -1, now, tankStarts = starts)
+        assertEquals(starts[1], before.startMs)
+        assertEquals(starts[0], before.endMs)
+        assertEquals(true, before.title.startsWith("Tank of "))
+        assertEquals(false, before.canBack)                // the first full tank
+        // A tank filled today is charted by hour.
+        val todays = w.of(com.abeernch.civicobd.core.Period.Tank, 0, now, tankStarts = listOf(now - 3_600_000L))
+        assertEquals(24, todays.slots.size)
+        assertEquals(com.abeernch.civicobd.core.Period.Tank, com.abeernch.civicobd.core.Period.entries.first())
+    }
+
+    @Test
+    fun aReadingKeptAfterAHandAddedDriveDoesNotCountItTwice() {
+        val H = com.abeernch.civicobd.core.HandDrives
+        val car = com.abeernch.civicobd.core.Car
+        val start = 10 * day
+        // Before and after, with no time given: the drive starts and ends at once. The after-reading is kept
+        // for just after its start, so the drive is not added on top of it again.
+        val (odo, at) = H.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.BeforeAfter, null, 50_025.0, start, start, 11 * day, inUseAtMs = 5 * day)!!
+        assertEquals(50_025.0, odo, 1e-9)
+        assertTrue(at > start)
+        val handDrive = drive(7, 10.0, 25.0, 2.0, manual = true, minutes = 0.0)
+        val since = listOf(handDrive).filter { it.startMs >= at }
+        assertEquals(50_025.0, car.odometerOf(odo, since, 0.0, -1), 1e-9)
+        // An after-reading older than the one in use leaves it alone.
+        assertEquals(null, H.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.BeforeAfter, null, 50_025.0, start, start + 60_000, 11 * day, inUseAtMs = 12 * day))
+        // Read off the dashboard now: kept now, after the drive.
+        val (odoNow, atNow) = H.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.OdometerNow, 50_100.0, null, start, start, 11 * day, inUseAtMs = 5 * day)!!
+        assertEquals(50_100.0 to 11 * day, odoNow to atNow)
+        // Typed in kilometres: the reading in use stays.
+        assertEquals(null, H.odometerToKeep(com.abeernch.civicobd.core.HandDrives.Distance.Kilometres, null, null, start, start, 11 * day, inUseAtMs = 5 * day))
+    }
+
+    @Test
+    fun aReadingTakenDuringARecordedDriveCountsThatDriveOnce() {
+        val car = com.abeernch.civicobd.core.Car
+        // Typed 20 minutes into a drive that has covered 15 km so far, while it is still recorded.
+        val live = com.abeernch.civicobd.core.TripTotals(id = 9, startMs = 10 * day, distanceKm = 15.0)
+        val now = 10 * day + 20 * 60_000
+        val (base, at) = car.readingAt(80_015.0, now, live)
+        assertEquals(80_000.0 to 10 * day, base to at)
+        // The drive is then counted from its live total: the odometer shows what was typed, and grows with it.
+        assertEquals(80_015.0, car.odometerOf(base, emptyList(), 15.0, 9), 1e-9)
+        assertEquals(80_040.0, car.odometerOf(base, emptyList(), 40.0, 9), 1e-9)
+        // Once it is saved and over, it counts once, from its row.
+        val ended = drive(9, 10.0, 40.0, 3.0, minutes = 50.0)
+        assertEquals(80_040.0, car.odometerOf(base, listOf(ended), 0.0, -1), 1e-9)
+        // With no drive in progress the reading is kept as typed, now.
+        assertEquals(80_015.0 to now, car.readingAt(80_015.0, now, com.abeernch.civicobd.core.TripTotals()))
+    }
+
+    @Test
+    fun aReadingTypedMidDriveByAnEarlierVersionIsRepaired() {
+        val car = com.abeernch.civicobd.core.Car
+        // As on the phone: typed 23 s into a 23 min 36 s drive of 13.76 km, which then dropped out of the odometer.
+        val t = com.abeernch.civicobd.core.TripRow(id = 61, startMs = 1_000_000, endMs = 1_000_000 + 1_416_000, distanceKm = 13.758)
+        val typedAt = 1_000_000L + 23_000
+        val (reading, from) = car.repairedReading(199_833.0, typedAt, listOf(t))!!
+        assertEquals(t.startMs, from)
+        assertEquals(199_833.0 - 13.758 * 23.0 / 1416.0, reading, 1e-9)
+        // The drive now counts: 199,833 less the 0.2 km before the reading, plus the whole drive.
+        assertEquals(199_846.53, car.odometerOf(reading, listOf(t), 0.0, -1), 0.01)
+        // Repaired once: a reading at a drive's start is left alone.
+        assertEquals(null, car.repairedReading(reading, from, listOf(t)))
+        // A reading between drives, or inside a drive added by hand, needs nothing.
+        assertEquals(null, car.repairedReading(199_833.0, t.endMs + 60_000, listOf(t)))
+        assertEquals(null, car.repairedReading(199_833.0, typedAt, listOf(t.copy(manual = true))))
+    }
+
+    @Test
+    fun aHandAddedDriveCannotEndLaterThanNowOrOverlapTheDriveBeingRecorded() {
+        val H = com.abeernch.civicobd.core.HandDrives
+        val now = 20 * day
+        assertEquals(null, H.timeProblem(now - 3_600_000, 30.0, now, null))
+        assertEquals(null, H.timeProblem(now - 3_600_000, null, now, null))
+        assertEquals("That is later than now.", H.timeProblem(now + 60_000, null, now, null))
+        assertTrue(H.timeProblem(now - 10 * 60_000, 30.0, now, null)!!.startsWith("With that much driving"))
+        // A drive has been recorded since 40 minutes ago: this one must end before it started.
+        val liveFrom = now - 40 * 60_000
+        assertTrue(H.timeProblem(now - 30 * 60_000, null, now, liveFrom)!!.startsWith("A drive is being recorded since"))
+        assertTrue(H.timeProblem(now - 60 * 60_000, 25.0, now, liveFrom)!!.startsWith("A drive is being recorded since"))
+        assertEquals(null, H.timeProblem(now - 60 * 60_000, 15.0, now, liveFrom))
     }
 }

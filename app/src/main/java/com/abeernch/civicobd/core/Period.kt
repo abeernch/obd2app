@@ -4,6 +4,7 @@ import java.util.Calendar
 
 /** Time ranges for statistics. Weeks start on Monday. */
 enum class Period(val label: String) {
+    Tank("This tank"),     // since the last full fill-up; stepping back goes tank by tank
     Today("Today"),
     Yesterday("Yesterday"),
     Week("This week"),
@@ -27,6 +28,7 @@ enum class Period(val label: String) {
         val end = now + 1
         val oneDay = 24L * 3600 * 1000
         return when (this) {
+            Tank -> 0L to end // its start is the last full fill-up: see Windows.of
             Today -> today to end
             Yesterday -> (today - oneDay) to today
             Week -> {
@@ -60,7 +62,15 @@ data class Slot(val startMs: Long, val endMs: Long, val label: String, val longL
  * A period moved [offset] steps from the current one (-1 is last week, last month and so on),
  * with its exact start and end, a title for it, and the bars to chart it with.
  */
-data class Window(val startMs: Long, val endMs: Long, val title: String, val slots: List<Slot>, val canStep: Boolean)
+data class Window(
+    val startMs: Long,
+    val endMs: Long,
+    val title: String,
+    val slots: List<Slot>,
+    val canStep: Boolean,
+    val canBack: Boolean = canStep,  // an earlier one exists (tanks run out at the first full fill-up)
+    val empty: String? = null,       // why there is nothing to show, when there is nothing (no full tank yet)
+)
 
 object Windows {
     private val locale = java.util.Locale.US
@@ -82,9 +92,28 @@ object Windows {
         else (if (sameYear) fmt("d MMM", start) else fmt("d MMM yyyy", start)) + " – " + fmt("d MMM yyyy", last)
     }
 
-    fun of(period: Period, offset: Int, now: Long = System.currentTimeMillis(), firstTripMs: Long? = null): Window {
+    /**
+     * [tankStarts] are the times of the full fill-ups, newest first. For [Period.Tank], offset 0 is the tank
+     * in use (from the last full fill-up to now), -1 the one before it (between the two full fill-ups
+     * before), and so on back to the first.
+     */
+    fun of(
+        period: Period, offset: Int, now: Long = System.currentTimeMillis(), firstTripMs: Long? = null,
+        tankStarts: List<Long> = emptyList(),
+    ): Window {
         val today = midnight(now)
         return when (period) {
+            Period.Tank -> {
+                val k = -offset
+                if (tankStarts.isEmpty() || k !in tankStarts.indices) {
+                    return Window(now, now + 1, "No full tank logged yet", emptyList(), canStep = false,
+                        empty = "Log a full tank on the Fuel screen to see the figures for each tank.")
+                }
+                val start = tankStarts[k]
+                val end = if (k == 0) now + 1 else tankStarts[k - 1]
+                val title = if (k == 0) "Since " + fmt("EEE d MMM, HH:mm", start) else "Tank of " + span(start, end)
+                Window(start, end, title, tankSlots(start, end), canStep = true, canBack = k + 1 < tankStarts.size)
+            }
             Period.Today, Period.Yesterday -> {
                 val shift = offset - if (period == Period.Yesterday) 1 else 0
                 val start = today.plus(Calendar.DAY_OF_MONTH, shift)
@@ -128,6 +157,21 @@ object Windows {
                 val slots = months(startMonth.timeInMillis, count).takeLast(36)
                 Window(0L, now + 1, if (firstTripMs != null) "Since " + fmt("d MMM yyyy", firstTripMs) else "All drives", slots, false)
             }
+        }
+    }
+
+    /** A tank's bars: by hour within a single day, by day up to a month, by week beyond. */
+    private fun tankSlots(start: Long, end: Long): List<Slot> {
+        val first = midnight(start)
+        var n = 1
+        while (first.plus(Calendar.DAY_OF_MONTH, n) < end) n++
+        return when {
+            n == 1 -> (0 until 24).map { h ->
+                val a = first.timeInMillis + h * 3_600_000L
+                Slot(a, a + 3_600_000L, "%02d".format(h), "%02d:00 to %02d:00".format(h, (h + 1) % 24))
+            }
+            n <= 31 -> days(first.timeInMillis, n, weekdays = n <= 7)
+            else -> weeks(first.timeInMillis, end)
         }
     }
 

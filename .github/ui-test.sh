@@ -161,6 +161,12 @@ tap_text "Gauges"; sleep 2
 
 alive "the map and floating window"
 tap_text "Car"; sleep 2; shot 06_car_top
+# The location mark beside the connection light: struck through while location is switched off (as from the
+# quick settings, with the app in view), plain again once it is back on.
+adb shell cmd location set-location-enabled false >/dev/null 2>&1; adb shell settings put secure location_mode 0 >/dev/null 2>&1
+sleep 3; shot 06a_location_off
+adb shell cmd location set-location-enabled true >/dev/null 2>&1; adb shell settings put secure location_mode 3 >/dev/null 2>&1
+sleep 3; shot 06b_location_on
 adb shell input swipe 540 1700 540 700 400; sleep 1.5; shot 07_car_tank
 scroll_tap "Read codes now"; sleep 4; shot 08b_car_faults_read
 adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_car_battery
@@ -176,6 +182,10 @@ tap_text "Grand prix"; sleep 2; shot 09e_settings_grandprix
 tap_text "Drive"; sleep 2; shot 09f_drive_grandprix
 tap_text "Settings"; sleep 2
 tap_text "Night"; sleep 2
+# An odometer reading typed while the demo drive is being recorded: the Car tab must show it as typed, not
+# with the drive so far added on top.
+scroll_to "Odometer now"; type_field "Odometer now" "50000"; hide_keyboard; sleep 1
+tap_text "Car"; sleep 2; shot 09g_car_odometer_mid_drive
 
 # 5. The end of a drive. The demo car's ignition goes off with the adapter left plugged in: the drive is
 #    parked straight away (PARKED and its countdown arrive), coming back to the app as if after a long time
@@ -196,6 +206,11 @@ adb shell settings put system user_rotation 0; sleep 4
 # Wait for the countdown to run out, then watch the goodbye (the car's lights go out, the halo comes up).
 while [ $(( $(date +%s) - T0 )) -lt 94 ]; do sleep 1; done
 burst 10e_goodbye 40; alive "the goodbye"; sleep 4; shot 10f_drive_ended
+# The carpooling share, settled on the goodbye: two passengers at Rs 400 each.
+tap_text "Add carpooling share"; sleep 2; shot 10f3_share_editor
+tap_text "One passenger more"; sleep 0.5
+type_field "Share each" "400"; hide_keyboard
+tap_text "Save  Rs 800"; sleep 2; shot 10f4_share_saved
 adb shell settings put system user_rotation 1; sleep 4; shot 10f2_ended_landscape
 adb shell settings put system user_rotation 0; sleep 4
 # Coming back after a long time with the goodbye already seen: now the welcome may play.
@@ -236,6 +251,10 @@ scroll_tap "Save changes"; sleep 2; shot 10c3_fuel_corrected
 tap_text "Edit"; sleep 1.5
 scroll_tap "Delete this fill-up"; sleep 1; shot 10c4_fuel_delete_confirm
 tap_text "Tap again to delete"; sleep 2; shot 10c5_fuel_deleted
+# A second full tank, kept: the drives since the first one become a finished tank in Stats.
+tap_text "Log a fill-up"; sleep 3
+type_field "Litres" "40"; hide_keyboard
+scroll_tap "Save"; sleep 2; shot 10c6_fuel_second_full
 # One back closes the form; the tab bar takes it from there (two backs could leave the app).
 adb shell input keyevent KEYCODE_BACK; sleep 1.5
 
@@ -267,6 +286,52 @@ tap_text "Select"; sleep 1
 tap_text "km/L" 0; sleep 0.5; tap_text "km/L" 1; sleep 1; shot 18b_merge_picked
 tap_text "Merge 2 drives"; sleep 3; shot 18c_merged
 adb shell input keyevent KEYCODE_BACK; sleep 1.5; shot 13c_trips_after_merge
+
+# 6b. Drives the app missed, added by hand. From kilometres: 25 km with 40 minutes' driving, yesterday.
+alive "the trips"
+tap_text "Add a drive"; sleep 2; shot 27_add_drive_form
+tap_text "Kilometres"; sleep 1
+type_field "Distance" "25"; hide_keyboard
+scroll_to "Time driving (optional)"; type_field "Time driving (optional)" "40"; hide_keyboard
+tap_text "Day before"; sleep 1; shot 27a_add_drive_filled
+scroll_tap "Save drive"; sleep 3; shot 27b_hand_drive_page
+# Its carpooling share, in place on its page: the usual carpool (from the goodbye) is offered first.
+scroll_tap "Add carpooling share"; sleep 1.5; shot 27b1_share_editor_remembered
+scroll_tap "Save  Rs 800"; sleep 2; shot 27c_hand_drive_shared
+# Corrected to 30 km: its fuel is estimated again, and the share stays.
+tap_text "More: correct, delete"; sleep 1; tap_text "Correct this drive"; sleep 2; shot 27c1_correct_form
+type_field "Distance" "30" clear; hide_keyboard
+scroll_tap "Save changes"; sleep 3; shot 27d_hand_drive_corrected
+adb shell input keyevent KEYCODE_BACK; sleep 1.5; shot 27e_trips_with_hand_drive
+# From odometer readings two days ago: older than the reading in use, which stays. Then deleted.
+tap_text "Add a drive"; sleep 2
+tap_text "Before and after"; sleep 1
+type_field "Odometer before" "10000"; hide_keyboard
+type_field "Odometer after" "10012"; hide_keyboard
+tap_text "Day before"; sleep 0.5; tap_text "Day before"; sleep 1; shot 28_before_after_form
+scroll_tap "Save drive"; sleep 3; shot 28a_before_after_page
+tap_text "More: correct, delete"; sleep 1; tap_text "Delete this drive"; sleep 0.8; tap_text "Tap again to delete this drive"; sleep 2
+shot 28a1_trips_after_delete
+# From the odometer now: the reading the app expects plus 7 km means 7 km were not recorded.
+tap_text "Add a drive"; sleep 2
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+EXP=$(python3 -c "import re; t=open('$OUT/ui.xml').read(); m=re.search(r'expects about ([0-9,]+) km', t); print(m.group(1).replace(',', '') if m else '')")
+echo "odometer the app expects: $EXP"
+if [ -n "$EXP" ]; then
+  type_field "What the odometer shows" "$((EXP + 7))"; hide_keyboard; sleep 1; shot 28b_odometer_now_form
+  scroll_tap "Save drive"; sleep 3; shot 28c_odometer_now_page
+  adb shell input keyevent KEYCODE_BACK; sleep 1.5
+  tap_text "Car"; sleep 2; shot 28d_car_odometer_after
+  tap_text "Trips"; sleep 2
+fi
+
+# 6c. Stats by the tank: the one in use (since the second full tank), then the one before, with its economy
+#     by the pump.
+tap_text "Stats"; sleep 2
+tap_text "This week"; sleep 1.5; tap_text "This tank"; sleep 2; shot 29_stats_this_tank
+tap_text "Previous"; sleep 2; shot 29b_stats_previous_tank
+adb shell input swipe 540 1600 540 900 400; sleep 1.5; shot 29c_stats_previous_tank_lower
+tap_text "Trips"; sleep 2
 tap_text "Routes"; sleep 4; shot 13b_trips_routes
 
 # 7. Connection log, now in Settings.

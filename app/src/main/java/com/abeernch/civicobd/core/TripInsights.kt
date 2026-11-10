@@ -6,8 +6,9 @@ data class TripSummary(
     val averageKmL: Double?, // over the 30 days before this drive
 ) {
     val minutes: Double get() = (trip.endMs - trip.startMs) / 60_000.0
-    val kmPerL: Double? get() = if (trip.fuelL > 0.01 && trip.distanceKm > 0.05) trip.distanceKm / trip.fuelL else null
-    val avgSpeed: Double? get() = (trip.driveS + trip.idleS).let { if (it > 10) trip.distanceKm / it * 3600 else null }
+    // A drive added by hand was not measured: no economy or speed of its own to show or compare.
+    val kmPerL: Double? get() = if (!trip.manual && trip.fuelL > 0.01 && trip.distanceKm > 0.05) trip.distanceKm / trip.fuelL else null
+    val avgSpeed: Double? get() = if (trip.manual) null else (trip.driveS + trip.idleS).let { if (it > 10) trip.distanceKm / it * 3600 else null }
 
     /** "+8 % on your average", "-12 % on your average", or null when there is nothing to compare. */
     val versusAverage: String?

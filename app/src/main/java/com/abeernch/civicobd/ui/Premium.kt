@@ -764,13 +764,18 @@ private fun pathsOf(icon: LuxIcon): List<Path> = iconPaths.getOrPut(icon) {
     icon.d.map { PathParser().parsePathString(it).toPath() }
 }
 
+/** A line icon. [struck] draws a slash across it, with a clear gap either side, for something switched off. */
 @Composable
-fun LineGlyph(icon: LuxIcon, color: Color, size: Dp = 20.dp, weight: Float = 1.5f) {
-    Canvas(Modifier.size(size)) {
+fun LineGlyph(icon: LuxIcon, color: Color, size: Dp = 20.dp, weight: Float = 1.5f, struck: Boolean = false) {
+    Canvas(Modifier.size(size).graphicsLayer { if (struck) compositingStrategy = CompositingStrategy.Offscreen }) {
         val s = this.size.width / 24f
         scale(s, s, pivot = Offset.Zero) {
             pathsOf(icon).forEach {
                 drawPath(it, color, style = Stroke(width = weight, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            if (struck) {
+                drawLine(Color.Black, Offset(3.5f, 3.5f), Offset(20.5f, 20.5f), strokeWidth = weight * 3.2f, cap = StrokeCap.Round, blendMode = BlendMode.Clear)
+                drawLine(color, Offset(3.5f, 3.5f), Offset(20.5f, 20.5f), strokeWidth = weight, cap = StrokeCap.Round)
             }
         }
     }

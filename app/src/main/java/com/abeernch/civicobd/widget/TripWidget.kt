@@ -74,15 +74,15 @@ class TripWidget : GlanceAppWidget() {
             Row(GlanceModifier.fillMaxWidth()) {
                 Cell(fmt(last?.distanceKm, 1), "km", big, small)
                 Cell(fmt(last?.kmPerL, 1), "km/L", big, small)
-                Cell(fmt(last?.cost, 0), "PKR", big, small)
+                Cell(fmt(last?.netCost, 0), "PKR", big, small)
             }
             Spacer(GlanceModifier.height(10.dp))
             Text(
-                "Today  ${fmt(today.distanceKm, 1)} km  ·  ${fmt(today.cost, 0)} PKR",
+                "Today  ${fmt(today.distanceKm, 1)} km  ·  ${fmt(today.netCost, 0)} PKR",
                 style = TextStyle(color = ink, fontSize = 13.sp),
             )
             Text(
-                "This month  ${fmt(month.distanceKm, 0)} km  ·  ${fmt(month.kmPerL, 1)} km/L  ·  ${fmt(month.cost, 0)} PKR",
+                "This month  ${fmt(month.distanceKm, 0)} km  ·  ${fmt(month.kmPerL, 1)} km/L  ·  ${fmt(month.netCost, 0)} PKR",
                 style = TextStyle(color = quiet, fontSize = 12.sp),
             )
         }

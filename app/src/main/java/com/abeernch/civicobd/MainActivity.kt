@@ -92,8 +92,17 @@ class MainActivity : ComponentActivity() {
     // Asks once for Bluetooth (Android 12+) and notifications (Android 13+), then starts the service.
     private val askPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            permissionTick++
             startServiceIfAllowed()
         }
+
+    // Bumped when a permission answer comes back, so what depends on it (the location mark) is read again.
+    private var permissionTick by mutableStateOf(0)
+
+    // The location switch can change while the app is in view (from the quick settings), so the mark follows it.
+    private val locationSwitch = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) = checkLocationSwitch()
+    }
 
     // ---- The drive welcome: played when the app is opened for a drive ----
 
@@ -123,6 +132,8 @@ class MainActivity : ComponentActivity() {
         recordings = Recordings(store)
         fuel = FuelLog(store)
         LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
+        // An odometer reading typed during a drive by an earlier version left that drive out of the odometer.
+        lifecycleScope.launch(Dispatchers.IO) { if (Car.repairReading(settings, store)) LiveBus.tripsChanged() }
 
         // Automated test hooks: "demo" starts the simulated car, "import_path" imports a CSV from a file path.
         // They exist only in the emulator test build, so no other app can trigger them on the phone.
@@ -221,8 +232,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(live.tripsVersion, fuelTick) {
                 withContext(Dispatchers.IO) {
                     val t = live.trip
-                    tank = fuel.tank(settings.tankL, if (t.active) t.fuelL else 0.0, if (t.active) t.distanceKm else 0.0)
-                    car = Car.status(settings, store, if (live.trip.active) live.trip.distanceKm else 0.0)
+                    tank = fuel.tank(settings.tankL, if (t.active) t.fuelL else 0.0, if (t.active) t.distanceKm else 0.0, if (t.active) t.id else -1)
+                    car = Car.status(settings, store, if (t.active) t.distanceKm else 0.0, if (t.active) t.id else -1)
                 }
             }
             var fuelOpen by remember { mutableStateOf(false) }
@@ -316,12 +327,16 @@ class MainActivity : ComponentActivity() {
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
             // The goodbye stands on true black: the page's soft lift is turned down while it shows.
             val goodbyeShown = !live.trip.active && completed != null
-            AppShell(live, driveJump, jump, pageLift = !goodbyeShown, onSplashFinished = { splashOver = true }) { tab ->
+            val locationOk = permissionTick >= 0 &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            AppShell(
+                live, driveJump, jump, pageLift = !goodbyeShown, locationOk = locationOk, onLocation = ::openLocation,
+                onSplashFinished = { splashOver = true },
+            ) { tab ->
                 when (tab) {
                     Tab.Drive -> DriveScreen(
                         live, today, tank, settings = settings,
-                        locationOk = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                            PackageManager.PERMISSION_GRANTED,
+                        locationOk = locationOk,
                         onHud = { hud = true },
                         completed = completed,
                         goodbyePending = goodbyePending,
@@ -340,9 +355,22 @@ class MainActivity : ComponentActivity() {
                             introStartMs = 0L
                         },
                         onLocation = ::openLocation,
+                        onShare = { trip, total, count ->
+                            lifecycleScope.launch {
+                                withContext(Dispatchers.IO) { store.setShare(trip.id, total, count) }
+                                completed = completed?.let { c ->
+                                    if (c.summary.trip.id != trip.id) c
+                                    else c.copy(summary = c.summary.copy(trip = c.summary.trip.copy(shared = total, passengers = count)))
+                                }
+                                LiveBus.tripsChanged()
+                                com.abeernch.civicobd.widget.TripWidget.refresh(this@MainActivity)
+                            }
+                        },
                     )
                     Tab.Trips -> com.abeernch.civicobd.ui.TripsScreen(
                         store = store,
+                        fuel = fuel,
+                        liveTrip = live.trip,
                         recordings = recordings,
                         version = live.tripsVersion,
                         settings = settings,
@@ -369,7 +397,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
-                    Tab.Stats -> StatsScreen(store, live.tripsVersion, onExportTrips = ::exportTrips)
+                    Tab.Stats -> StatsScreen(store, fuel, live.tripsVersion + fuelTick, onExportTrips = ::exportTrips)
                     Tab.Car -> if (fuelOpen) {
                         FuelScreen(
                             fuel = fuel, settings = settings, tank = tank, version = fuelTick,
@@ -433,6 +461,14 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         startServiceIfAllowed()
         checkLocationSwitch()
+        ContextCompat.registerReceiver(
+            this, locationSwitch,
+            android.content.IntentFilter(android.location.LocationManager.MODE_CHANGED_ACTION).apply {
+                addAction(android.location.LocationManager.PROVIDERS_CHANGED_ACTION)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        permissionTick++
         // Back after five minutes or more: treat it as opening the app for a drive.
         if (stoppedAtMs > 0 && System.currentTimeMillis() - stoppedAtMs > 5 * 60_000L) {
             introLeadMs = 450
@@ -443,6 +479,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         stoppedAtMs = System.currentTimeMillis()
+        runCatching { unregisterReceiver(locationSwitch) }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -463,7 +500,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Shows the "Location is off" strip while the phone's location switch is off. */
+    /** Whether the phone's location switch is on, for the location mark and the GPS control. */
     private fun checkLocationSwitch() {
         val on = try {
             getSystemService(android.location.LocationManager::class.java)

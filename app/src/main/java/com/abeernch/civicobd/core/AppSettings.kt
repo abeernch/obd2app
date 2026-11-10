@@ -63,6 +63,18 @@ class AppSettings(context: Context) {
         get() = prefs.getFloat("tank_l", 50f).toDouble()
         set(value) = prefs.edit().putFloat("tank_l", value.toFloat()).apply()
 
+    /** The usual carpool: how many passengers, and what each pays (PKR), offered first next time. */
+    var carpoolPassengers: Int
+        get() = prefs.getInt("carpool_passengers", 1)
+        set(value) = prefs.edit().putInt("carpool_passengers", value).apply()
+
+    var carpoolEach: Double?
+        get() = if (prefs.contains("carpool_each")) prefs.getFloat("carpool_each", 0f).toDouble() else null
+        set(value) {
+            if (value == null) prefs.edit().remove("carpool_each").apply()
+            else prefs.edit().putFloat("carpool_each", value.toFloat()).apply()
+        }
+
     /** Last odometer reading the user entered, and when. Logged trips are added on top of it. */
     var odometerKm: Double?
         get() = if (prefs.contains("odometer_km")) prefs.getFloat("odometer_km", 0f).toDouble() else null

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -46,6 +48,8 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.abeernch.civicobd.core.Link
 import com.abeernch.civicobd.core.LiveState
 
@@ -61,6 +65,8 @@ fun AppShell(
     driveJump: Int = 0,
     jump: Pair<Tab, Int>? = null,
     pageLift: Boolean = true,
+    locationOk: Boolean = true,
+    onLocation: () -> Unit = {},
     onSplashFinished: () -> Unit = {},
     screen: @Composable (Tab) -> Unit,
 ) {
@@ -102,9 +108,7 @@ fun AppShell(
                 // In landscape the Drive screen needs every bit of height, so the title bar steps aside there.
                 val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
                     android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                if (!(landscape && tab == Tab.Drive)) Header(live)
-                // On Drive the GPS control shows the same thing, so the strip is not repeated there.
-                if (live.locationOff && tab != Tab.Drive) LocationStrip()
+                if (!(landscape && tab == Tab.Drive)) Header(live, locationOk, onLocation)
                 Box(Modifier.weight(1f)) {
                     AnimatedContent(
                         targetState = tab,
@@ -127,33 +131,8 @@ fun AppShell(
     }
 }
 
-/**
- * One line under the title while the phone's location switch is off. Apps can't switch location on
- * themselves, so "Turn on" opens the switch in Settings, and the app offers to turn it off after the drive.
- */
 @Composable
-private fun LocationStrip() {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable {
-                com.abeernch.civicobd.core.AppSettings(context).locOnByApp = true
-                try {
-                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                } catch (_: Exception) {
-                }
-            }
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Location is off. Routes won't be recorded.", style = Type.label.copy(color = Palette.Caution), modifier = Modifier.weight(1f))
-        Text("Turn on", style = Type.label.copy(color = Palette.Accent, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
-    }
-}
-
-@Composable
-private fun Header(live: LiveState) {
+private fun Header(live: LiveState, locationOk: Boolean, onLocation: () -> Unit) {
     val color by animateColorAsState(
         when (live.link) {
             Link.Live -> Palette.Accent
@@ -193,6 +172,64 @@ private fun Header(live: LiveState) {
             }
         }
         StatusDot(color, breathing = working, halo = live.link == Link.Live)
+        LocationMark(live, locationOk, onLocation)
+    }
+}
+
+/** What location is doing, as the GPS control on Drive shows it: off or not allowed, finding a fix, recording, on. */
+private enum class Gps(val description: String) {
+    Off("Location is off. Routes are not recorded. Tap to turn it on"),
+    NotAllowed("Location is not allowed. Routes are not recorded. Tap to allow it"),
+    Searching("Location on, finding GPS"),
+    Recording("Location on, recording the route"),
+    On("Location on"),
+}
+
+/**
+ * Location as a small mark beside the connection light: struck through in amber when it is off or not
+ * allowed (a tap then turns it on, or asks for it), breathing while a drive waits for its first fix, in
+ * the accent colour while a route is being recorded, and quiet otherwise.
+ */
+@Composable
+private fun LocationMark(live: LiveState, locationOk: Boolean, onLocation: () -> Unit) {
+    val state = when {
+        live.locationOff -> Gps.Off
+        !locationOk -> Gps.NotAllowed
+        live.trip.active && !live.tripPaused && live.position == null -> Gps.Searching
+        live.trip.active && !live.tripPaused -> Gps.Recording
+        else -> Gps.On
+    }
+    val off = state == Gps.Off || state == Gps.NotAllowed
+    val color by animateColorAsState(
+        when (state) {
+            Gps.Off, Gps.NotAllowed -> Palette.Caution
+            Gps.Recording -> Palette.Accent
+            else -> Palette.Label
+        },
+        Motion.fade(450),
+        label = "gps",
+    )
+    Box(
+        Modifier
+            .padding(start = 6.dp)
+            .size(36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .semantics { contentDescription = state.description }
+            .then(if (off) Modifier.pressable(onClick = onLocation) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (state == Gps.Searching) {
+            // Only while it searches: an idle mark draws no frames.
+            val breathe = androidx.compose.animation.core.rememberInfiniteTransition(label = "gpsBreath")
+            val pulse by breathe.animateFloat(
+                initialValue = 0.35f, targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(1100), androidx.compose.animation.core.RepeatMode.Reverse),
+                label = "gpsPulse",
+            )
+            Box(Modifier.graphicsLayer { alpha = pulse }) { LineGlyph(LuxIcon.Gps, color, 19.dp, 1.7f) }
+        } else {
+            LineGlyph(LuxIcon.Gps, color, 19.dp, 1.7f, struck = off)
+        }
     }
 }
 
