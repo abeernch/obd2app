@@ -383,7 +383,13 @@ class MainActivity : ComponentActivity() {
                             lifecycleScope.launch {
                                 // Oldest first: each later drive is folded into the first one.
                                 val merged = withContext(Dispatchers.IO) {
-                                    picked.sortedBy { it.startMs }.reduce { acc, next -> recordings.mergeTrips(acc, next) }
+                                    val pieces = picked.sortedBy { it.startMs }
+                                    pieces.reduce { acc, next -> recordings.mergeTrips(acc, next) }.also { m ->
+                                        // The odometer reads the same after the merge as before it.
+                                        settings.odometerKm?.let { km ->
+                                            Car.readingAfterMerge(km, settings.odometerAtMs, m, pieces)?.let { settings.odometerKm = it }
+                                        }
+                                    }
                                 }
                                 LiveBus.tripsChanged()
                                 done(merged)

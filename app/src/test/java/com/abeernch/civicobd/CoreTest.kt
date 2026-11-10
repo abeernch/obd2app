@@ -638,7 +638,8 @@ class CoreTest {
     fun aReadingTypedMidDriveByAnEarlierVersionIsRepaired() {
         val car = com.abeernch.civicobd.core.Car
         // As on the phone: typed 23 s into a 23 min 36 s drive of 13.76 km, which then dropped out of the odometer.
-        val t = com.abeernch.civicobd.core.TripRow(id = 61, startMs = 1_000_000, endMs = 1_000_000 + 1_416_000, distanceKm = 13.758)
+        val t = com.abeernch.civicobd.core.TripRow(id = 61, startMs = 1_000_000, endMs = 1_000_000 + 1_416_000, distanceKm = 13.758,
+            driveS = 1065.6, idleS = 201.6)
         val typedAt = 1_000_000L + 23_000
         val (reading, from) = car.repairedReading(199_833.0, typedAt, listOf(t))!!
         assertEquals(t.startMs, from)
@@ -650,6 +651,26 @@ class CoreTest {
         // A reading between drives, or inside a drive added by hand, needs nothing.
         assertEquals(null, car.repairedReading(199_833.0, t.endMs + 60_000, listOf(t)))
         assertEquals(null, car.repairedReading(199_833.0, typedAt, listOf(t.copy(manual = true))))
+        // Drives merged across a gap span far more than their time moving: not split by time.
+        val merged = t.copy(startMs = t.startMs - day, distanceKm = 433.0, driveS = 7 * 3600.0 + 1065.6)
+        assertEquals(null, car.repairedReading(199_833.0, typedAt, listOf(merged)))
+    }
+
+    @Test
+    fun mergingAcrossTheReadingKeepsTheOdometer() {
+        val car = com.abeernch.civicobd.core.Car
+        // The reading was kept for the start of today's drive; yesterday's drive is merged into it.
+        val yesterday = drive(1, 9.0, 420.0, 30.0, minutes = 420.0)
+        val today = drive(2, 10.0, 4.4, 0.3, minutes = 6.0)
+        val at = today.startMs
+        val before = car.odometerOf(49_996.0, listOf(today), 0.0, -1)          // 50,000.4
+        val merged = yesterday.copy(endMs = today.endMs, distanceKm = 424.4)    // starts yesterday now
+        val reading = car.readingAfterMerge(49_996.0, at, merged, listOf(yesterday, today))!!
+        // The merged drive starts before the reading, so it is not added; today's distance is in the reading.
+        assertEquals(before, car.odometerOf(reading, emptyList(), 0.0, -1), 1e-9)
+        // Both before the reading, or both after it: nothing changes.
+        assertEquals(null, car.readingAfterMerge(49_996.0, today.endMs + 60_000, merged, listOf(yesterday, today)))
+        assertEquals(null, car.readingAfterMerge(49_996.0, yesterday.startMs, merged, listOf(yesterday, today)))
     }
 
     @Test

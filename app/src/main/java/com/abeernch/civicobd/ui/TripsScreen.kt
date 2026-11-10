@@ -310,9 +310,9 @@ private fun DriveCard(
                 append("  ·  ${fmt(t.distanceKm, 1)} km")
                 if (!t.manual || t.driveS > 0) append("  ·  $minutes min")
                 // An estimate is marked as one; with a carpooling share, what the drive came to after it.
-                val approx = if (t.manual && t.fuelEstimated) "≈ " else ""
+                val approx = if (t.manual && t.fuelEstimated) "≈\u00A0" else ""
                 if (t.shared > 0) {
-                    append("  ·  net ")
+                    append("  ·  net\u00A0")
                     withStyle(androidx.compose.ui.text.SpanStyle(color = if (t.netCost < 0) Lux.Green else Palette.Label)) {
                         append(approx + rupees(t.netCost))
                     }

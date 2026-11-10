@@ -36,10 +36,10 @@ import com.abeernch.civicobd.core.AppSettings
 import com.abeernch.civicobd.core.TripRow
 import kotlin.math.roundToLong
 
-/** "Rs 1,234", or "Rs −130" below zero. */
+/** "Rs 1,234", or "Rs −130" below zero, never broken across two lines. */
 internal fun rupees(v: Double): String {
     val r = v.roundToLong()
-    return if (r < 0) "Rs −" + "%,d".format(-r) else "Rs " + "%,d".format(r)
+    return if (r < 0) "Rs\u00A0−" + "%,d".format(-r) else "Rs\u00A0" + "%,d".format(r)
 }
 
 /** The colour for a net cost: green when the carpooling share covered all of the fuel and more. */

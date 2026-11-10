@@ -240,18 +240,23 @@ private fun DetailsCard(trip: TripRow, summary: TripSummary?, route: RouteContex
         Text("Drive details", style = Type.section.copy(color = Palette.Value, fontSize = Type.sz(19f)), modifier = Modifier.padding(horizontal = 6.dp))
         val avgSpeed = summary?.avgSpeed
         // A drive added by hand: its fuel and cost marked when estimated, and no speeds.
-        val approx = if (trip.manual && trip.fuelEstimated) "≈ " else ""
+        val approx = trip.manual && trip.fuelEstimated
         val cells = listOfNotNull(
             Triple("Distance", fmt(trip.distanceKm, 1), "km"),
             Triple("Drive time", if (trip.driveS + trip.idleS > 0) clockTime(trip.driveS + trip.idleS) else "--", ""),
-            Triple("Fuel used", approx + fmt(trip.fuelL, 2), "L"),
-            Triple("Cost", approx + "%,d".format(trip.cost.roundToInt()), "Rs"),
+            Triple("Fuel used", fmt(trip.fuelL, 2), "L"),
+            Triple("Cost", "%,d".format(trip.cost.roundToInt()), "Rs"),
             if (trip.manual) null else Triple("Avg speed", fmt(avgSpeed, 1), "km/h"),
             if (trip.manual) null else Triple("Top speed", fmt(trip.maxSpeed, 0), "km/h"),
         )
         cells.chunked(2).forEach { pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                pair.forEach { (name, value, unit) -> DetailTile(name, value, unit, Modifier.weight(1f), unitFirst = name == "Cost") }
+                pair.forEach { (name, value, unit) ->
+                    DetailTile(
+                        name, value, unit, Modifier.weight(1f), unitFirst = name == "Cost",
+                        approx = approx && (name == "Fuel used" || name == "Cost"),
+                    )
+                }
             }
         }
         ShareLine(trip, settings, Modifier.padding(horizontal = 2.dp), onSave = onShare)
@@ -267,7 +272,7 @@ private fun DetailsCard(trip: TripRow, summary: TripSummary?, route: RouteContex
 }
 
 @Composable
-private fun DetailTile(name: String, value: String, unit: String, modifier: Modifier, unitFirst: Boolean) {
+private fun DetailTile(name: String, value: String, unit: String, modifier: Modifier, unitFirst: Boolean, approx: Boolean = false) {
     Column(
         modifier
             .clip(RoundedCornerShape(16.dp))
@@ -281,6 +286,8 @@ private fun DetailTile(name: String, value: String, unit: String, modifier: Modi
         val unitStyle = SpanStyle(fontSize = Type.sz(15f), color = Palette.Label, fontWeight = FontWeight.Normal)
         Text(
             buildAnnotatedString {
+                // An estimate is marked first: "≈ 1.79 L", "≈ Rs 675".
+                if (approx) append("≈ ")
                 if (unitFirst && unit.isNotEmpty()) withStyle(unitStyle) { append("$unit ") }
                 append(value)
                 if (!unitFirst && unit.isNotEmpty()) withStyle(unitStyle) { append(" $unit") }

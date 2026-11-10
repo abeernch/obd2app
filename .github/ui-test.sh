@@ -133,7 +133,7 @@ xy=$(pos_text "BLUETOOTH"); if [ -n "$xy" ]; then adb shell input tap $xy; burst
 sleep 20; shot 04_drive_cruise
 
 # 3. Tab switching: find the tab positions once, then tap and grab frames mid-animation.
-TAB_DRIVE=$(pos_text "Drive"); TAB_STATS=$(pos_text "Stats"); TAB_SETTINGS=$(pos_text "Settings")
+TAB_DRIVE=$(pos_text "Drive"); TAB_STATS=$(pos_text "Stats"); TAB_SETTINGS=$(pos_text "Settings"); TAB_CAR=$(pos_text "Car")
 echo "tabs: drive=$TAB_DRIVE stats=$TAB_STATS settings=$TAB_SETTINGS"
 [ -n "$TAB_STATS" ] && adb shell input tap $TAB_STATS; burst tab_to_stats 4
 sleep 1
@@ -185,7 +185,8 @@ tap_text "Night"; sleep 2
 # An odometer reading typed while the demo drive is being recorded: the Car tab must show it as typed, not
 # with the drive so far added on top.
 scroll_to "Odometer now"; type_field "Odometer now" "50000"; hide_keyboard; sleep 1
-tap_text "Car"; sleep 2; shot 09g_car_odometer_mid_drive
+# By the tab's place: Settings has a "Car" heading of its own.
+[ -n "$TAB_CAR" ] && adb shell input tap $TAB_CAR; sleep 2; shot 09g_car_odometer_mid_drive
 
 # 5. The end of a drive. The demo car's ignition goes off with the adapter left plugged in: the drive is
 #    parked straight away (PARKED and its countdown arrive), coming back to the app as if after a long time

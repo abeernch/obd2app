@@ -1,6 +1,7 @@
 package com.abeernch.civicobd.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -192,13 +193,7 @@ internal fun AddDriveScreen(
             Column {
                 Text("Distance from", style = Type.label)
                 Spacer(Modifier.height(8.dp))
-                Chips(modes, mode, {
-                    when (it) {
-                        Distance.OdometerNow -> "Odometer now"
-                        Distance.BeforeAfter -> "Before and after"
-                        Distance.Kilometres -> "Kilometres"
-                    }
-                }, inset = 0.dp) { mode = it }
+                ModeChips(modes, mode) { mode = it }
                 Spacer(Modifier.height(4.dp))
                 when (mode) {
                     Distance.OdometerNow -> {
@@ -331,6 +326,36 @@ internal fun AddDriveScreen(
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/** How the distance is given, as chips that wrap rather than run off the edge (a large text size included). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ModeChips(modes: List<Distance>, selected: Distance, onPick: (Distance) -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        modes.forEach { option ->
+            val on = option == selected
+            val edge by androidx.compose.animation.animateColorAsState(if (on) Palette.Accent else Palette.Hairline, Motion.fade(250), label = "mode")
+            val fill by androidx.compose.animation.animateColorAsState(if (on) Palette.AccentSoft else Palette.Background, Motion.fade(250), label = "modeFill")
+            Text(
+                when (option) {
+                    Distance.OdometerNow -> "Odometer now"
+                    Distance.BeforeAfter -> "Before and after"
+                    Distance.Kilometres -> "Kilometres"
+                },
+                style = Type.body.copy(color = if (on) Palette.Value else Palette.Label, fontSize = Type.sz(15f)),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(fill)
+                    .border(1.dp, edge, RoundedCornerShape(16.dp))
+                    .pressable { onPick(option) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 

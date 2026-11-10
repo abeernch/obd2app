@@ -24,22 +24,43 @@ object Car {
      * A reading kept for a moment inside a recorded drive: typed during it, by versions before [readingAt].
      * Only drives starting after the reading are added to it, so that drive was left out. Returns the reading
      * as of the drive's start, less the share of the drive already covered by then (by time), or null when
-     * the reading needs no repair. Once repaired it falls at a drive's start, so it is never repaired twice.
+     * the reading needs no repair. Only a single drive qualifies, its span close to its time moving and
+     * standing: drives merged across a gap span far more, and cannot be split by time.
      */
     internal fun repairedReading(reading: Double, atMs: Long, trips: List<TripRow>): Pair<Double, Long>? {
-        val t = trips.firstOrNull { !it.manual && it.startMs < atMs && atMs < it.endMs } ?: return null
+        val t = trips.firstOrNull {
+            !it.manual && it.startMs < atMs && atMs < it.endMs &&
+                it.endMs - it.startMs <= ((it.driveS + it.idleS) * 1000).toLong() + 20 * 60_000L
+        } ?: return null
         val share = (atMs - t.startMs).toDouble() / (t.endMs - t.startMs)
         return (reading - t.distanceKm * share) to t.startMs
     }
 
-    /** Repairs the reading in use, as [repairedReading] does. True when it changed. */
+    /**
+     * Repairs the reading in use, as [repairedReading] does, once: it mends a reading saved by an earlier
+     * version, and is not run again. True when the reading changed.
+     */
     fun repairReading(settings: AppSettings, store: TripStore): Boolean {
+        if (settings.readingRepaired) return false
+        settings.readingRepaired = true
         val km = settings.odometerKm ?: return false
         val at = settings.odometerAtMs
         val (reading, from) = repairedReading(km, at, store.between(at - 24 * 3_600_000L, at)) ?: return false
         settings.odometerKm = reading
         settings.odometerAtMs = from
         return true
+    }
+
+    /**
+     * After [pieces] are merged into [merged]: drives are added to the reading by their start, so when the
+     * merged drive now starts before the reading, the pieces that started at or after it would drop out of
+     * the odometer. Their distance goes into the reading instead, which keeps its time, so the odometer reads
+     * the same as before. Null when nothing changes.
+     */
+    internal fun readingAfterMerge(reading: Double, atMs: Long, merged: TripRow, pieces: List<TripRow>): Double? {
+        if (merged.startMs >= atMs) return null
+        val after = pieces.filter { it.startMs >= atMs }.sumOf { it.distanceKm }
+        return if (after > 0) reading + after else null
     }
 
     /**

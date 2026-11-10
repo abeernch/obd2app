@@ -68,6 +68,11 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("carpool_passengers", 1)
         set(value) = prefs.edit().putInt("carpool_passengers", value).apply()
 
+    /** The one-time repair of an odometer reading typed during a drive by an earlier version has run. */
+    var readingRepaired: Boolean
+        get() = prefs.getBoolean("reading_repaired", false)
+        set(value) = prefs.edit().putBoolean("reading_repaired", value).apply()
+
     var carpoolEach: Double?
         get() = if (prefs.contains("carpool_each")) prefs.getFloat("carpool_each", 0f).toDouble() else null
         set(value) {
