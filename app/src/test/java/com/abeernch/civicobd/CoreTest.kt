@@ -708,4 +708,75 @@ class CoreTest {
         assertTrue(second.endsWith(";yes;yes;\"Ali took it; \"\"short\"\" trip\""))
         dir.deleteRecursively()
     }
+
+    // ---- A fill-up partway through a drive
+
+    private fun speeds(vararg pts: Pair<Long, Float>) =
+        com.abeernch.civicobd.core.Portions.Speeds(pts.map { it.first }.toLongArray(), pts.map { it.second }.toFloatArray())
+
+    @Test
+    fun aDriveIsSplitAtTheFillUpByItsSpeed() {
+        val P = com.abeernch.civicobd.core.Portions
+        val m = 60_000L
+        // 10 min at 60 km/h (10 km), 5 min with the engine off at the pump, then 10 min at 30 km/h (5 km).
+        val pts = mutableListOf<Pair<Long, Float>>()
+        for (i in 0..600 step 2) pts += i * 1000L to 60f
+        for (i in 900..1500 step 2) pts += i * 1000L to 30f
+        val s = speeds(*pts.toTypedArray())
+        val trip = com.abeernch.civicobd.core.TripRow(id = 9, startMs = 0, endMs = 25 * m, distanceKm = 15.0, fuelL = 1.2, cost = 450.0, driveS = 1200.0)
+        val pump = 12 * m
+        val after = P.share(trip, s, pump, Long.MAX_VALUE)
+        assertEquals(1.0 / 3, after, 0.01)                   // 5 of the 15 km, though 13 of the 25 minutes
+        val part = P.part(trip, after, pump, Long.MAX_VALUE)
+        assertEquals(5.0, part.distanceKm, 0.1)
+        assertEquals(pump, part.startMs)
+        assertEquals(0.4, part.fuelL, 0.01)
+        // The two sides add up to the drive.
+        assertEquals(1.0, P.share(trip, s, 0, pump) + after, 1e-9)
+        // The stop is found, in the middle of the drive.
+        val stops = P.stops(s)
+        assertEquals(1, stops.size)
+        assertEquals(600_000L to 900_000L, stops[0])
+        // Without a recording, or one that does not cover the drive (a merge across a gap), by time.
+        assertEquals(13.0 / 25, P.share(trip, null, pump, Long.MAX_VALUE), 1e-9)
+        assertEquals(13.0 / 25, P.share(trip.copy(distanceKm = 60.0), s, pump, Long.MAX_VALUE), 1e-9)
+        // A drive wholly on one side.
+        assertEquals(1.0, P.share(trip, s, 0, Long.MAX_VALUE), 1e-9)
+        assertEquals(0.0, P.share(trip, s, 30 * m, Long.MAX_VALUE), 1e-9)
+        // Added by hand with no time: on the side its start falls.
+        val point = trip.copy(endMs = 0, manual = true)
+        assertEquals(1.0, P.share(point, null, 0, pump), 1e-9)
+        assertEquals(0.0, P.share(point, null, pump, Long.MAX_VALUE), 1e-9)
+    }
+
+    @Test
+    fun theMomentsOfferedAreTheStopsAndDriveEndsBeforeTheFillUp() {
+        val P = com.abeernch.civicobd.core.Portions
+        val m = 60_000L
+        val pts = mutableListOf<Pair<Long, Float>>()
+        for (i in 0..600 step 2) pts += i * 1000L to 50f
+        for (i in 900..1500 step 2) pts += i * 1000L to 40f
+        val drive = com.abeernch.civicobd.core.TripRow(id = 1, startMs = 0, endMs = 25 * m, distanceKm = 15.0)
+        val later = com.abeernch.civicobd.core.TripRow(id = 2, startMs = 120 * m, endMs = 140 * m, distanceKm = 9.0)
+        val ms = P.moments(listOf(later to null, drive to speeds(*pts.toTypedArray())), afterMs = 0, beforeMs = 130 * m)
+        // Newest first: the end of the first drive, then its stop at the pump. The later drive had not ended.
+        assertEquals(2, ms.size)
+        assertEquals(false, ms[0].duringDrive)
+        assertEquals(25 * m + 30_000, ms[0].timeMs)
+        assertEquals(true, ms[1].duringDrive)
+        assertEquals(750_000L, ms[1].timeMs)
+        assertEquals(300_000L, ms[1].stopMs)
+        // Nothing before the fill-up before it.
+        assertTrue(P.moments(listOf(drive to speeds(*pts.toTypedArray())), afterMs = 26 * m, beforeMs = 130 * m).isEmpty())
+    }
+
+    @Test
+    fun theTankCountsOnlyThePartOfADriveAfterTheFillUp() {
+        // Filled at 12 minutes into a 15 km drive: 5 km of it are in the new tank, with their fuel.
+        val fill = com.abeernch.civicobd.core.Fillup(id = 1, timeMs = 12 * 60_000L, litres = 40.0, price = 350.0, full = true, odometer = null)
+        val part = com.abeernch.civicobd.core.TripRow(id = 9, startMs = 12 * 60_000L, endMs = 25 * 60_000L, distanceKm = 5.0, fuelL = 0.4)
+        val tank = com.abeernch.civicobd.core.tankOf(listOf(fill), listOf(part), 50.0, 0.0, 0.0, -1)
+        assertEquals(0.4, tank.usedL, 1e-9)
+        assertEquals(49.6, tank.leftL!!, 1e-9)
+    }
 }

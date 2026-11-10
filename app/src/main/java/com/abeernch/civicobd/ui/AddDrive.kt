@@ -55,19 +55,19 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private const val DAY_MS = 86_400_000L
+internal const val DAY_MS = 86_400_000L
 
 /** A typed number with no trailing zeros, always with a full stop. */
 private fun typed(v: Double): String =
     java.math.BigDecimal(v).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 
-private fun midnightOf(ms: Long): Long = Calendar.getInstance().apply {
+internal fun midnightOf(ms: Long): Long = Calendar.getInstance().apply {
     timeInMillis = ms
     set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
 }.timeInMillis
 
 /** Whole days from [from] to [to], both midnights (rounded, so a clock change does not shift it). */
-private fun daysBetween(from: Long, to: Long): Int = ((to - from).toDouble() / DAY_MS).roundToInt()
+internal fun daysBetween(from: Long, to: Long): Int = ((to - from).toDouble() / DAY_MS).roundToInt()
 
 /**
  * Adding a drive the app did not record, or correcting one added by hand ([editing]). The distance comes
@@ -330,23 +330,30 @@ internal fun AddDriveScreen(
 }
 
 /** How the distance is given, as chips that wrap rather than run off the edge (a large text size included). */
+@Composable
+private fun ModeChips(modes: List<Distance>, selected: Distance, onPick: (Distance) -> Unit) =
+    WrapChips(modes, selected, {
+        when (it) {
+            Distance.OdometerNow -> "Odometer now"
+            Distance.BeforeAfter -> "Before and after"
+            Distance.Kilometres -> "Kilometres"
+        }
+    }, onPick)
+
+/** A single choice as chips that wrap onto the next line instead of running off the screen. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun ModeChips(modes: List<Distance>, selected: Distance, onPick: (Distance) -> Unit) {
+internal fun <T> WrapChips(options: List<T>, selected: T, label: (T) -> String, onPick: (T) -> Unit) {
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        modes.forEach { option ->
+        options.forEach { option ->
             val on = option == selected
-            val edge by androidx.compose.animation.animateColorAsState(if (on) Palette.Accent else Palette.Hairline, Motion.fade(250), label = "mode")
-            val fill by androidx.compose.animation.animateColorAsState(if (on) Palette.AccentSoft else Palette.Background, Motion.fade(250), label = "modeFill")
+            val edge by androidx.compose.animation.animateColorAsState(if (on) Palette.Accent else Palette.Hairline, Motion.fade(250), label = "chip")
+            val fill by androidx.compose.animation.animateColorAsState(if (on) Palette.AccentSoft else Palette.Background, Motion.fade(250), label = "chipFill")
             Text(
-                when (option) {
-                    Distance.OdometerNow -> "Odometer now"
-                    Distance.BeforeAfter -> "Before and after"
-                    Distance.Kilometres -> "Kilometres"
-                },
+                label(option),
                 style = Type.body.copy(color = if (on) Palette.Value else Palette.Label, fontSize = Type.sz(15f)),
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
@@ -361,7 +368,7 @@ private fun ModeChips(modes: List<Distance>, selected: Distance, onPick: (Distan
 
 /** "Today, Tue 10 Nov" with arrows to step back a day, never into the future. */
 @Composable
-private fun DayStepper(dayStart: Long, today: Long, canForward: Boolean, onBack: () -> Unit, onForward: () -> Unit) {
+internal fun DayStepper(dayStart: Long, today: Long, canForward: Boolean, onBack: () -> Unit, onForward: () -> Unit) {
     val name = SimpleDateFormat("EEE d MMM", Locale.US).format(Date(dayStart))
     val label = when (daysBetween(dayStart, today)) {
         0 -> "Today, $name"
@@ -382,7 +389,7 @@ private fun DayStepper(dayStart: Long, today: Long, canForward: Boolean, onBack:
 
 /** Two digits, for an hour or a minute. */
 @Composable
-private fun TwoDigits(value: String, name: String, onChange: (String) -> Unit) {
+internal fun TwoDigits(value: String, name: String, onChange: (String) -> Unit) {
     BasicTextField(
         value = value,
         onValueChange = { onChange(it.filter(Char::isDigit).take(2)) },

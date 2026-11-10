@@ -171,9 +171,9 @@ fun FuelScreen(
                 editing = null
             }
             AnimatedVisibility(adding, enter = fadeIn(Motion.fade()) + expandVertically(Motion.settle()), exit = fadeOut(Motion.fade(160)) + shrinkVertically(Motion.settle())) {
-                FillupForm(settings, onSave = { f ->
+                FillupForm(settings, fuel, afterMs = fills.firstOrNull()?.timeMs ?: 0L, beforeMs = null, onSave = { f ->
                     scope.launch {
-                        val saved = withContext(Dispatchers.IO) { fuel.add(f, settings) }
+                        val saved = withContext(Dispatchers.IO) { fuel.add(f, settings, com.abeernch.civicobd.core.LiveBus.state.value.trip) }
                         adding = false
                         // One note at a time: the latest says what happened.
                         historyMessage = null
@@ -203,9 +203,12 @@ fun FuelScreen(
                 }
             }
         }
-        items(fills, key = { it.id }) { f ->
+        items(fills.size, key = { fills[it].id }) { i ->
+            val f = fills[i]
             FillupCard(
-                f, open = editing == f.id, settings = settings,
+                f, open = editing == f.id, settings = settings, fuel = fuel,
+                // Its time can move only between the fill-ups either side (newest first).
+                afterMs = fills.getOrNull(i + 1)?.timeMs ?: 0L, beforeMs = fills.getOrNull(i - 1)?.timeMs,
                 onToggle = {
                     editing = if (editing == f.id) null else f.id
                     adding = false
@@ -213,7 +216,7 @@ fun FuelScreen(
                 onSave = { edited ->
                     scope.launch {
                         val factorBefore = settings.fuelFactor
-                        withContext(Dispatchers.IO) { fuel.update(f, edited, settings) }
+                        withContext(Dispatchers.IO) { fuel.update(f, edited, settings, com.abeernch.civicobd.core.LiveBus.state.value.trip) }
                         editing = null
                         message = null
                         historyMessage = "Fill-up corrected." +
@@ -239,12 +242,36 @@ fun FuelScreen(
 private fun plain(v: Double): String =
     java.math.BigDecimal(v).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 
+/** When a fill-up was made: now, as it was logged, at a stop the app found, or a time set by hand. */
+private sealed interface FillTime {
+    object Now : FillTime
+    data class Logged(val ms: Long) : FillTime
+    data class AtMoment(val m: com.abeernch.civicobd.core.Portions.Moment) : FillTime
+    object Other : FillTime
+}
+
+/** "21:22", or "Sat 21:22" on another day. */
+private fun clockOf(ms: Long): String {
+    val sameDay = SimpleDateFormat("yyyyMMdd", Locale.US).let { it.format(Date(ms)) == it.format(Date()) }
+    return SimpleDateFormat(if (sameDay) "HH:mm" else "EEE HH:mm", Locale.US).format(Date(ms))
+}
+
 /**
  * The fill-up form: for a new fill-up, or, with [initial], to correct a saved one. A correction keeps the
- * fill-up's time and the price that was paid, and offers [onDelete] (tapped twice, so never by accident).
+ * price that was paid, and offers [onDelete] (tapped twice, so never by accident). Its time can be set
+ * between [afterMs] and [beforeMs] (now, when null): often the pump is a stop on the way, and the app
+ * offers the stops it found, so the drive is split there and the kilometres after it count in the new tank.
  */
 @Composable
-private fun FillupForm(settings: AppSettings, initial: Fillup? = null, onDelete: (() -> Unit)? = null, onSave: (Fillup) -> Unit) {
+private fun FillupForm(
+    settings: AppSettings,
+    fuel: FuelLog,
+    afterMs: Long,
+    beforeMs: Long?,
+    initial: Fillup? = null,
+    onDelete: (() -> Unit)? = null,
+    onSave: (Fillup) -> Unit,
+) {
     var litres by remember { mutableStateOf(initial?.litres?.let(::plain) ?: "") }
     var price by remember { mutableStateOf(initial?.price?.let(::plain) ?: fmt(settings.fuelPrice, 2)) }
     var priceNote by remember { mutableStateOf(if (initial == null) "Last price used" else "The price paid at the time") }
@@ -265,7 +292,67 @@ private fun FillupForm(settings: AppSettings, initial: Fillup? = null, onDelete:
         }
     }
 
+    // ---- when
+    val opened = remember { System.currentTimeMillis() }
+    val upper = beforeMs ?: opened
+    var moments by remember { mutableStateOf(emptyList<com.abeernch.civicobd.core.Portions.Moment>()) }
+    LaunchedEffect(Unit) { moments = withContext(Dispatchers.IO) { runCatching { fuel.moments(afterMs, upper) }.getOrDefault(emptyList()) } }
+    val first: FillTime = if (initial == null) FillTime.Now else FillTime.Logged(initial.timeMs)
+    var whenSel by remember { mutableStateOf(first) }
+    val today = remember { midnightOf(opened) }
+    val startCal = remember { java.util.Calendar.getInstance().apply { timeInMillis = initial?.timeMs ?: opened } }
+    var dayOffset by remember { androidx.compose.runtime.mutableIntStateOf(daysBetween(today, midnightOf(startCal.timeInMillis)).coerceAtMost(0)) }
+    var hour by remember { mutableStateOf("%02d".format(startCal.get(java.util.Calendar.HOUR_OF_DAY))) }
+    var minute by remember { mutableStateOf("%02d".format(startCal.get(java.util.Calendar.MINUTE))) }
+    val dayStart = remember(dayOffset) { java.util.Calendar.getInstance().apply { timeInMillis = today; add(java.util.Calendar.DAY_OF_MONTH, dayOffset) }.timeInMillis }
+    val otherMs = hour.toIntOrNull()?.takeIf { it in 0..23 }?.let { h -> minute.toIntOrNull()?.takeIf { it in 0..59 }?.let { m -> dayStart + h * 3_600_000L + m * 60_000L } }
+    val otherOk = otherMs != null && otherMs > afterMs && otherMs <= upper
+    // Null while the time set by hand is not a valid one.
+    val chosen: Long? = when (val w = whenSel) {
+        FillTime.Now -> opened
+        is FillTime.Logged -> w.ms
+        is FillTime.AtMoment -> w.m.timeMs
+        FillTime.Other -> otherMs?.takeIf { otherOk }
+    }
+
     Column(Modifier.padding(top = 12.dp)) {
+        Text("When", style = Type.label)
+        Spacer(Modifier.height(8.dp))
+        WrapChips(listOf(first) + moments.map { FillTime.AtMoment(it) } + FillTime.Other, whenSel, { w ->
+            when (w) {
+                FillTime.Now -> "Now"
+                is FillTime.Logged -> "As logged, ${clockOf(w.ms)}"
+                is FillTime.AtMoment -> if (w.m.duringDrive) "Stop at ${clockOf(w.m.timeMs)}, ${maxOf(1, w.m.stopMs / 60_000)} min"
+                    else "After the drive, ${clockOf(w.m.timeMs)}"
+                FillTime.Other -> "Another time"
+            }
+        }) { whenSel = it }
+        when (val w = whenSel) {
+            is FillTime.AtMoment -> Text(
+                if (w.m.duringDrive) "The engine stood ${maxOf(1, w.m.stopMs / 60_000)} min during the drive that started at ${clockOf(w.m.tripStartMs)}. " +
+                    "That drive is split there: the kilometres after the pump count in this tank."
+                else "Just after the drive that started at ${clockOf(w.m.tripStartMs)} ended.",
+                style = Type.label, modifier = Modifier.padding(top = 8.dp),
+            )
+            FillTime.Other -> {
+                DayStepper(dayStart, today, canForward = dayOffset < 0, onBack = { if (dayOffset > -366) dayOffset-- }, onForward = { dayOffset++ })
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("At", style = Type.label.copy(fontSize = Type.body.fontSize), modifier = Modifier.weight(1f))
+                    TwoDigits(hour, "Hour") { hour = it }
+                    Text("  :  ", style = Type.body)
+                    TwoDigits(minute, "Minute") { minute = it }
+                }
+                if (otherMs != null && !otherOk) {
+                    Text(
+                        if (otherMs > upper) (if (beforeMs == null) "That is later than now." else "That is after the next fill-up, ${clockOf(beforeMs)}.")
+                        else "That is before the previous fill-up, ${clockOf(afterMs)}.",
+                        style = Type.label.copy(color = Palette.Caution),
+                    )
+                }
+            }
+            else -> Unit
+        }
+        Spacer(Modifier.height(12.dp))
         NumberField("Litres", litres, "L") { litres = it }
         NumberField("Price", price, "PKR/L") { price = it }
         Text(priceNote, style = Type.label)
@@ -277,12 +364,19 @@ private fun FillupForm(settings: AppSettings, initial: Fillup? = null, onDelete:
         Spacer(Modifier.height(10.dp))
         val l = litres.toDoubleOrNull()
         val p = price.toDoubleOrNull()
+        val ready = l != null && p != null && chosen != null
         OutlineButton(
-            if (l != null && p != null) "${if (initial == null) "Save" else "Save changes"}  ${fmt(l * p, 0)} PKR" else "Enter litres and price",
-            color = if (l != null && p != null) Palette.Accent else Palette.Label,
+            when {
+                l == null || p == null -> "Enter litres and price"
+                chosen == null -> "Set the time"
+                else -> "${if (initial == null) "Save" else "Save changes"}  ${fmt(l * p, 0)} PKR"
+            },
+            color = if (ready) Palette.Accent else Palette.Label,
         ) {
-            if (l != null && l > 0 && p != null && p > 0) {
-                onSave(Fillup(timeMs = initial?.timeMs ?: System.currentTimeMillis(), litres = l, price = p, full = full, odometer = odometer.toDoubleOrNull()))
+            if (l != null && l > 0 && p != null && p > 0 && chosen != null) {
+                // "Now" is the moment it is saved.
+                val at = if (whenSel == FillTime.Now) System.currentTimeMillis() else chosen
+                onSave(Fillup(timeMs = at, litres = l, price = p, full = full, odometer = odometer.toDoubleOrNull()))
             }
         }
         if (onDelete != null) {
@@ -301,6 +395,9 @@ private fun FillupCard(
     f: Fillup,
     open: Boolean,
     settings: AppSettings,
+    fuel: FuelLog,
+    afterMs: Long,
+    beforeMs: Long?,
     onToggle: () -> Unit,
     onSave: (Fillup) -> Unit,
     onDelete: () -> Unit,
@@ -317,7 +414,7 @@ private fun FillupCard(
         }
         AnimatedVisibility(open, enter = fadeIn(Motion.fade()) + expandVertically(Motion.settle()), exit = fadeOut(Motion.fade(160)) + shrinkVertically(Motion.settle())) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
-                FillupForm(settings, initial = f, onDelete = onDelete, onSave = onSave)
+                FillupForm(settings, fuel, afterMs, beforeMs, initial = f, onDelete = onDelete, onSave = onSave)
                 Spacer(Modifier.height(8.dp))
                 OutlineButton("Cancel", color = Palette.Label, onClick = onToggle)
             }

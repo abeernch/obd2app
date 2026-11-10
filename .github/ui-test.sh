@@ -243,6 +243,9 @@ adb shell input swipe 540 1700 540 600 400; sleep 1.5; shot 12_stats_trips
 tap_text "Car"; sleep 2
 scroll_tap "Fill-ups"; sleep 2; shot 10b_fuel
 tap_text "Log a fill-up"; sleep 4; shot 10c_fuel_form
+# When it was filled: a time set by hand shows the day and time, then back to now.
+tap_text "Another time"; sleep 1; shot 10c0_fuel_when_other
+tap_text "Now"; sleep 0.5
 # Log a full tank of 30 L at the price shown, correct it to 32 L, then delete it (tapped twice).
 type_field "Litres" "30"; hide_keyboard
 scroll_tap "Save"; sleep 2; shot 10c1_fuel_saved
@@ -255,6 +258,8 @@ tap_text "Tap again to delete"; sleep 2; shot 10c5_fuel_deleted
 # A second full tank, kept: the drives since the first one become a finished tank in Stats.
 tap_text "Log a fill-up"; sleep 3
 type_field "Litres" "40"; hide_keyboard
+# Filled just after the demo drive, as the app offers.
+tap_text "After the drive"; sleep 1; shot 10c5b_fuel_after_drive
 scroll_tap "Save"; sleep 2; shot 10c6_fuel_second_full
 # One back closes the form; the tab bar takes it from there (two backs could leave the app).
 adb shell input keyevent KEYCODE_BACK; sleep 1.5

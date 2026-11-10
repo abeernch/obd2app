@@ -93,7 +93,9 @@ fun StatsScreen(
     // Reload whenever the window changes or the service writes a trip.
     LaunchedEffect(window.startMs, window.endMs, version) {
         withContext(Dispatchers.IO) {
-            trips = store.between(window.startMs, window.endMs)
+            // A tank starts and ends at fill-ups: a drive one falls in counts only its part on this side.
+            trips = if (period == Period.Tank && window.empty == null) fuel.tripsIn(window.startMs, window.endMs)
+                else store.between(window.startMs, window.endMs)
             firstTrip = store.between(0, Long.MAX_VALUE).lastOrNull()?.startMs
         }
     }

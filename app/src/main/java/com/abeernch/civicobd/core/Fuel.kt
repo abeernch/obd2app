@@ -145,7 +145,8 @@ internal fun changeFillup(
         )
     }
 
-    val fill = edited.copy(id = old.id, timeMs = old.timeMs)
+    // The time may be corrected too (the form keeps it between the fill-ups either side).
+    val fill = edited.copy(id = old.id)
     val c = compare(fill, others, countedBetween)
     var saved = fill.copy(appLitres = c?.counted, factorBefore = null, factorAfter = null)
     var factor: Double? = null
@@ -172,6 +173,55 @@ internal fun changeFillup(
 }
 
 class FuelLog(private val store: TripStore) {
+    private val recordings = Recordings(store)
+
+    /** A drive's speed samples, from its recording, to cut it at a fill-up made partway through it. */
+    private fun speedsOf(trip: TripRow): Portions.Speeds? {
+        if (trip.manual) return null
+        val rec = recordings.forTrip(trip.id) ?: return null
+        val ch = recordings.channels(rec.id).firstOrNull { it.name.equals("Vehicle speed", ignoreCase = true) } ?: return null
+        val s = recordings.series(rec.id, ch)
+        return Portions.Speeds(s.t, s.v)
+    }
+
+    /**
+     * The drives between two times. One that a fill-up falls in the middle of counts only its part on
+     * this side: the kilometres and fuel after the pump belong to the new tank.
+     */
+    fun tripsIn(fromMs: Long, toMs: Long): List<TripRow> =
+        store.between(fromMs - 2 * 86_400_000L, toMs)
+            .filter { it.startMs >= fromMs || it.endMs > fromMs }
+            .mapNotNull { t ->
+                if (t.startMs >= fromMs && t.endMs <= toMs) t
+                else Portions.share(t, speedsOf(t), fromMs, toMs).takeIf { it > 0.0 }?.let { Portions.part(t, it, fromMs, toMs) }
+            }
+
+    /**
+     * A reading taken at [atMs] (at the pump), as it is kept: for a moment inside a drive, as of that
+     * drive's start, less the part of it driven by then, because drives are added to the odometer by
+     * their start. [live] is the drive being recorded, counted from its live total.
+     */
+    internal fun readingAt(odometer: Double, atMs: Long, live: TripTotals): Pair<Double, Long> {
+        if (live.active && live.startMs < atMs) {
+            val row = store.byId(live.id)
+            val before = row?.let { it.distanceKm * Portions.share(it, speedsOf(it), it.startMs, atMs) } ?: live.distanceKm
+            return (odometer - before) to live.startMs
+        }
+        val inside = store.between(atMs - 2 * 86_400_000L, atMs).firstOrNull { !it.manual && it.startMs < atMs && it.endMs > atMs }
+            ?: return odometer to atMs
+        return (odometer - inside.distanceKm * Portions.share(inside, speedsOf(inside), inside.startMs, atMs)) to inside.startMs
+    }
+
+    /**
+     * Moments a fill-up between [afterMs] and [beforeMs] may have been made at: stops inside the drives of
+     * the 36 hours before, and the ends of those drives, newest first.
+     */
+    fun moments(afterMs: Long, beforeMs: Long): List<Portions.Moment> {
+        val trips = store.between(maxOf(afterMs, beforeMs - 36 * 3_600_000L) - 86_400_000L, beforeMs)
+            .filter { !it.manual }
+            .map { it to speedsOf(it) }
+        return Portions.moments(trips, afterMs, beforeMs)
+    }
 
     fun all(): List<Fillup> {
         val out = mutableListOf<Fillup>()
@@ -193,11 +243,11 @@ class FuelLog(private val store: TripStore) {
     }
 
     private fun countedBetween(fromMs: Long, toMs: Long): Counted =
-        store.between(fromMs, toMs).let { trips -> Counted(trips.sumOf { it.fuelL }, trips.any { it.manual }) }
+        tripsIn(fromMs, toMs).let { trips -> Counted(trips.sumOf { it.fuelL }, trips.any { it.manual }) }
 
     /** The tank each full fill-up closed: distance and economy by the pump. See [stretches]. */
     fun tankStretches(fills: List<Fillup> = all()): Map<Long, TankStretch> = stretches(fills) { from, to ->
-        store.between(from, to).let { trips -> trips.sumOf { it.distanceKm } to trips.any { it.manual } }
+        tripsIn(from, to).let { trips -> trips.sumOf { it.distanceKm } to trips.any { it.manual } }
     }
 
     private fun values(f: Fillup) = ContentValues().apply {
@@ -216,7 +266,7 @@ class FuelLog(private val store: TripStore) {
      * with the litres the app counted in between, and corrects the fuel factor by that ratio.
      * Returns the saved fill-up, with the comparison filled in when one was possible.
      */
-    fun add(f: Fillup, settings: AppSettings): Fillup {
+    fun add(f: Fillup, settings: AppSettings, live: TripTotals = TripTotals()): Fillup {
         var saved = f
         compare(f, all(), ::countedBetween)?.let { c ->
             saved = if (c.calibrates) {
@@ -229,23 +279,25 @@ class FuelLog(private val store: TripStore) {
             }
         }
         settings.fuelPrice = f.price // later trips are costed at what this fuel cost
-        if (f.odometer != null) {
-            settings.odometerKm = f.odometer
-            settings.odometerAtMs = f.timeMs
+        // The newest reading, kept for its moment (see readingAt).
+        if (f.odometer != null && f.timeMs >= settings.odometerAtMs) {
+            val (reading, at) = readingAt(f.odometer, f.timeMs, live)
+            settings.odometerKm = reading
+            settings.odometerAtMs = at
         }
         val id = store.writableDatabase.insert("fillups", null, values(saved))
         return saved.copy(id = id)
     }
 
     /** Corrects a saved fill-up (litres, price, full or partial, odometer). Returns the record as saved. */
-    fun update(old: Fillup, edited: Fillup, settings: AppSettings): Fillup {
+    fun update(old: Fillup, edited: Fillup, settings: AppSettings, live: TripTotals = TripTotals()): Fillup {
         val change = changeFillup(
             old, edited, all().filter { it.id != old.id }, settings.fuelFactor, settings.fuelPrice,
             settings.odometerAtMs, ::countedBetween,
         )
         val saved = change.saved ?: return old
         store.writableDatabase.update("fillups", values(saved), "id = ?", arrayOf(old.id.toString()))
-        apply(change, settings, old.timeMs)
+        apply(change, settings, saved.timeMs, live)
         return saved
     }
 
@@ -256,16 +308,17 @@ class FuelLog(private val store: TripStore) {
             settings.odometerAtMs, ::countedBetween,
         )
         store.writableDatabase.delete("fillups", "id = ?", arrayOf(f.id.toString()))
-        apply(change, settings, f.timeMs)
+        apply(change, settings, f.timeMs, TripTotals())
         return change
     }
 
-    private fun apply(change: FillupChange, settings: AppSettings, atMs: Long) {
+    private fun apply(change: FillupChange, settings: AppSettings, atMs: Long, live: TripTotals) {
         change.factor?.let { settings.fuelFactor = it }
         change.price?.let { settings.fuelPrice = it }
         change.odometerKm?.let {
-            settings.odometerKm = it
-            settings.odometerAtMs = atMs
+            val (reading, at) = readingAt(it, atMs, live)
+            settings.odometerKm = reading
+            settings.odometerAtMs = at
         }
     }
 
@@ -278,8 +331,18 @@ class FuelLog(private val store: TripStore) {
     fun tank(tankL: Double, liveTripL: Double, liveTripKm: Double, activeTripId: Long = -1, now: Long = System.currentTimeMillis()): Tank {
         val fills = all()
         val since = fills.firstOrNull { it.full }?.timeMs
-        val trips = if (since != null) store.between(since, now) else store.between(now - 14L * 86_400_000, now)
-        return tankOf(fills, trips, tankL, liveTripL, liveTripKm, activeTripId)
+        val trips = if (since != null) tripsIn(since, now) else store.between(now - 14L * 86_400_000, now)
+        // Filled up partway through the drive in progress: only its part since then is in this tank.
+        var liveL = liveTripL
+        var liveKm = liveTripKm
+        if (since != null && activeTripId >= 0) {
+            store.byId(activeTripId)?.takeIf { it.startMs < since }?.let { row ->
+                val before = Portions.share(row, speedsOf(row), row.startMs, since)
+                liveL = (liveTripL - row.fuelL * before).coerceAtLeast(0.0)
+                liveKm = (liveTripKm - row.distanceKm * before).coerceAtLeast(0.0)
+            }
+        }
+        return tankOf(fills, trips, tankL, liveL, liveKm, activeTripId)
     }
 }
 
