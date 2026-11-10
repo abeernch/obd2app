@@ -7,7 +7,12 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
-path, wanted = sys.argv[1], sys.argv[2]
+# A no-break space (kept between "Rs" and an amount) matches a plain one.
+def norm(t):
+    return t.replace("\u00a0", " ")
+
+
+path, wanted = sys.argv[1], norm(sys.argv[2])
 index = int(sys.argv[3]) if len(sys.argv) > 3 else 0
 try:
     root = ET.parse(path).getroot()
@@ -16,8 +21,8 @@ except Exception:
 
 exact, prefix = [], []
 for node in root.iter("node"):
-    text = (node.get("text") or "").strip()
-    desc = (node.get("content-desc") or "").strip()
+    text = norm(node.get("text") or "").strip()
+    desc = norm(node.get("content-desc") or "").strip()
     bounds = node.get("bounds") or ""
     m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
     if not m:
