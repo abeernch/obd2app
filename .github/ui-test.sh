@@ -198,7 +198,11 @@ tap_text "Part number 1"; sleep 0.5; adb shell input text "ACT621"; hide_keyboar
 shot 08l1_diary_form_parts
 scroll_tap "Brake pads"; sleep 0.5; scroll_tap "Suspension bushes"; sleep 0.5; shot 08l2_diary_form_jobs
 scroll_tap "Take photo"; sleep 5; shot 08l3_camera
-adb shell input keyevent KEYCODE_BACK; sleep 3; alive "after the camera"
+# The emulator's camera: the shutter, then its tick to hand the photo back.
+adb shell input tap 540 2110; sleep 4; shot 08l3a_camera_taken
+tap_text "Done"; sleep 4
+adb shell dumpsys window | grep -q "mCurrentFocus.*$PKG" || { adb shell input keyevent KEYCODE_BACK; sleep 3; }
+alive "after the camera"; shot 08l3b_form_with_photo
 scroll_tap "From gallery"; sleep 4; shot 08l4_gallery
 adb shell input keyevent KEYCODE_BACK; sleep 3; alive "after the gallery"
 scroll_to "Notes"; tap_text "Notes"; sleep 0.5; adb shell input text "Pads%sand%stwo%scontrol%sarm%sbushes."; hide_keyboard
@@ -207,7 +211,7 @@ tap_text "Back"; sleep 1.5; shot 08n_diary_two_entries
 tap_text "Share PDF"; sleep 5; shot 08o_diary_pdf_share
 adb shell input keyevent KEYCODE_BACK; sleep 2
 # The PDF itself, for checking page by page.
-adb shell run-as $PKG sh -c 'ls cache/exports' > "$OUT/exports_list.txt" 2>&1 || true
+adb shell run-as $PKG ls cache/exports > "$OUT/exports_list.txt" 2>&1 || true
 PDF=$(grep -m1 "maintenance-record" "$OUT/exports_list.txt" | tr -d '\r')
 [ -n "$PDF" ] && adb exec-out run-as $PKG cat "cache/exports/$PDF" > "$OUT/maintenance-record.pdf" || echo "no PDF found"
 tap_text "Back"; sleep 1.5; shot 08p_car_with_diary
