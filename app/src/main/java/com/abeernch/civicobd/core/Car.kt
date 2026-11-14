@@ -64,6 +64,21 @@ object Car {
     }
 
     /**
+     * What the odometer showed at [ms], from the reading [base] kept for [atMs] and the drives between:
+     * later, the drives since are added; earlier, the drives from then to the reading are taken off.
+     */
+    internal fun odometerAtTime(base: Double, atMs: Long, trips: List<TripRow>, ms: Long): Double =
+        if (ms >= atMs) base + trips.filter { it.startMs in atMs until ms }.sumOf { it.distanceKm }
+        else base - trips.filter { it.startMs in ms until atMs }.sumOf { it.distanceKm }
+
+    /** The odometer at [ms], for a diary entry, or null with no reading to start from. */
+    fun odometerAt(settings: AppSettings, store: TripStore, ms: Long): Double? {
+        val base = settings.odometerKm ?: return null
+        val at = settings.odometerAtMs
+        return odometerAtTime(base, at, store.between(minOf(at, ms), maxOf(at, ms)), ms)
+    }
+
+    /**
      * [liveTripKm] is the drive in progress, [activeTripId] its saved row: that row is left out, so the
      * drive counts once, from its live total, and not again from its last save.
      */

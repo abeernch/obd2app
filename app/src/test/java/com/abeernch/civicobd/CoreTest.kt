@@ -802,4 +802,75 @@ class CoreTest {
         val custom = com.abeernch.civicobd.core.ServiceItem("hoses", "Radiator hoses", 60_000.0, 48)
         assertEquals("hoses", M.merged(saved + custom).last().key)
     }
+
+    // ---- Maintenance diary
+
+    @Test
+    fun diaryPartsAndListsSurviveStorage() {
+        val T = com.abeernch.civicobd.core.DiaryText
+        val parts = listOf(
+            com.abeernch.civicobd.core.Part("Brake pads, front", "Akebono", "ACT621"),
+            com.abeernch.civicobd.core.Part("Bush\twith tab", "", ""),
+            com.abeernch.civicobd.core.Part("  ", "dropped", "no name"),
+        )
+        val back = T.decodeParts(T.encodeParts(parts))
+        assertEquals(2, back.size)
+        assertEquals(parts[0], back[0])
+        assertEquals("Bush with tab", back[1].name)
+        assertEquals("Akebono · ACT621", T.partDetail(back[0]))
+        assertEquals("", T.partDetail(back[1]))
+        assertEquals(listOf("timing", "pads"), T.decodeList(T.encodeList(listOf("timing", " pads ", ""))))
+        assertTrue(T.decodeParts(null).isEmpty())
+    }
+
+    @Test
+    fun theOdometerOnAPastDayComesFromTheReadingAndTheDrives() {
+        val car = com.abeernch.civicobd.core.Car
+        val trips = listOf(drive(1, 1.0, 20.0, 1.5), drive(2, 3.0, 30.0, 2.0), drive(3, 6.0, 40.0, 3.0))
+        // A reading of 100,000 kept on day 4.
+        assertEquals(100_040.0, car.odometerAtTime(100_000.0, 4 * day, trips, 7 * day), 1e-9)  // after: day 6 added
+        assertEquals(99_970.0, car.odometerAtTime(100_000.0, 4 * day, trips, 2 * day), 1e-9)   // before: day 3 taken off
+        assertEquals(100_000.0, car.odometerAtTime(100_000.0, 4 * day, trips, 4 * day), 1e-9)
+    }
+
+    @Test
+    fun aDiaryEntryLogsTheServiceJobsItCovers() {
+        val M = com.abeernch.civicobd.core.Maintenance
+        val items = M.merged(listOf(com.abeernch.civicobd.core.ServiceItem("pads", "Brake pads", 30_000.0, 24, doneKm = 199_900.0, doneMs = 10 * day)))
+        val entry = com.abeernch.civicobd.core.DiaryEntry(timeMs = 5 * day, title = "Belt", odometerKm = 199_800.0, jobs = listOf("timing", "pads"))
+        val after = M.fromDiary(items, entry)
+        // The timing belt is logged on the entry's day and odometer.
+        assertEquals(199_800.0, after.first { it.key == "timing" }.doneKm!!, 1e-9)
+        assertEquals(5 * day, after.first { it.key == "timing" }.doneMs)
+        // The pads were logged later than the entry, so they keep that.
+        assertEquals(10 * day, after.first { it.key == "pads" }.doneMs)
+        // Jobs it does not cover are untouched.
+        assertEquals(null, after.first { it.key == "oil" }.doneMs)
+        assertEquals(com.abeernch.civicobd.core.Maintenance.Group.Brakes, M.group("pads"))
+        assertEquals(com.abeernch.civicobd.core.Maintenance.Group.Engine, M.group("timing"))
+        assertEquals(com.abeernch.civicobd.core.Maintenance.Group.Other, M.group("battery"))
+    }
+
+    @Test
+    fun theCarTabShowsOnlyTheJobsComingUp() {
+        val M = com.abeernch.civicobd.core.Maintenance
+        val odo = 200_000.0
+        val items = M.merged(emptyList()).map {
+            when (it.key) {
+                "oil" -> it.copy(doneKm = 196_000.0)          // 1,000 km left
+                "pads" -> it.copy(doneKm = 199_000.0)         // 29,000 left
+                "timing" -> it.copy(doneKm = 199_800.0)       // nearly all left
+                "air" -> it.copy(doneKm = 170_000.0)          // overdue
+                "coolant" -> it.copy(doneKm = 190_000.0)      // 30,000 left of 40,000
+                else -> it
+            }
+        }
+        val up = M.comingUp(items.map { M.status(it, odo) })
+        assertEquals(listOf("air", "oil", "coolant"), up.map { it.item.key })
+        // Nothing logged: nothing shown, the list is a tap away.
+        assertTrue(M.comingUp(M.merged(emptyList()).map { M.status(it, odo) }).isEmpty())
+        // Every overdue job shows, even beyond three.
+        val late = M.merged(emptyList()).take(5).map { it.copy(doneKm = 0.0) }.filter { it.everyKm != null }
+        assertEquals(late.size, M.comingUp(late.map { M.status(it, odo) }).size)
+    }
 }

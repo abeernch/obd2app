@@ -122,7 +122,7 @@ burst() {  # burst NAME COUNT
 #    (the car's lights come up where the cluster will be, a greeting), then the cluster sweeping awake.
 #    Frames throughout (no screen recording here: the app is decoding its own clip, and the emulator does
 #    both in software).
-adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --es import_path $CSV_PATH
+adb shell am start -n $PKG/.MainActivity --ez demo true --ez seed_fuel true --ez seed_diary true --es import_path $CSV_PATH
 burst start 48
 alive "the drive welcome"
 
@@ -170,14 +170,47 @@ sleep 3; shot 06b_location_on
 adb shell input swipe 540 1700 540 700 400; sleep 1.5; shot 07_car_tank
 scroll_tap "Read codes now"; sleep 4; shot 08b_car_faults_read
 adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_car_battery
-# A service job opened for editing.
+# Service: only the jobs coming up on the Car tab; the full list, in groups, on its own page.
 adb shell input swipe 540 500 540 2000 300; adb shell input swipe 540 500 540 2000 300; sleep 1
-tap_text "Engine oil and filter"; sleep 2; shot 08d_car_service_edit
+shot 08c1_car_coming_up
+scroll_tap "All 16 service jobs"; sleep 2; shot 08d_service_page
+tap_text "Engine oil and filter"; sleep 2; shot 08d1_service_edit
 tap_text "Engine oil and filter"; sleep 1
-# The longer list: the timing belt logged as done today, then the jobs further down.
-scroll_tap "Timing belt"; sleep 2; shot 08e_car_timing_belt
-scroll_tap "Done today"; sleep 2; shot 08f_car_timing_done
-adb shell input swipe 540 1600 540 900 400; sleep 1.5; shot 08g_car_service_lower
+scroll_tap "Brake pads"; sleep 2; scroll_tap "Done today"; sleep 2; shot 08f_service_pads_done
+adb shell input swipe 540 1600 540 900 400; sleep 1.5; shot 08g_service_lower
+adb shell input keyevent KEYCODE_BACK; sleep 1.5
+adb shell input swipe 540 500 540 2000 300; adb shell input swipe 540 500 540 2000 300; sleep 1; shot 08h_car_after_service
+
+# The maintenance diary: the seeded entry with its receipt, a new entry with parts and jobs, then the PDF.
+tap_text "Maintenance diary"; sleep 2; shot 08i_diary_list
+tap_text "Timing belt and water pump"; sleep 2; shot 08j_diary_entry
+tap_text "Photo"; sleep 2; shot 08k_diary_photo
+adb shell input tap 540 1200; sleep 1.5
+tap_text "Back"; sleep 1.5
+tap_text "New entry"; sleep 2; shot 08l_diary_form
+tap_text "Title"; sleep 0.5; adb shell input text "Brake%spads%sand%ssuspension%sbushes"; hide_keyboard
+type_field "Cost" "14500"; hide_keyboard
+tap_text "Where"; sleep 0.5; adb shell input text "Honda%sworkshop"; hide_keyboard
+scroll_tap "+  Add a part"; sleep 1
+tap_text "Part 1"; sleep 0.5; adb shell input text "Front%sbrake%spads"; hide_keyboard
+tap_text "Make 1"; sleep 0.5; adb shell input text "Akebono"; hide_keyboard
+tap_text "Part number 1"; sleep 0.5; adb shell input text "ACT621"; hide_keyboard
+shot 08l1_diary_form_parts
+scroll_tap "Brake pads"; sleep 0.5; scroll_tap "Suspension bushes"; sleep 0.5; shot 08l2_diary_form_jobs
+scroll_tap "Take photo"; sleep 5; shot 08l3_camera
+adb shell input keyevent KEYCODE_BACK; sleep 3; alive "after the camera"
+scroll_tap "From gallery"; sleep 4; shot 08l4_gallery
+adb shell input keyevent KEYCODE_BACK; sleep 3; alive "after the gallery"
+scroll_to "Notes"; tap_text "Notes"; sleep 0.5; adb shell input text "Pads%sand%stwo%scontrol%sarm%sbushes."; hide_keyboard
+scroll_tap "Save entry"; sleep 3; shot 08m_diary_new_entry
+tap_text "Back"; sleep 1.5; shot 08n_diary_two_entries
+tap_text "Share PDF"; sleep 5; shot 08o_diary_pdf_share
+adb shell input keyevent KEYCODE_BACK; sleep 2
+# The PDF itself, for checking page by page.
+adb shell run-as $PKG sh -c 'ls cache/exports' > "$OUT/exports_list.txt" 2>&1 || true
+PDF=$(grep -m1 "maintenance-record" "$OUT/exports_list.txt" | tr -d '\r')
+[ -n "$PDF" ] && adb exec-out run-as $PKG cat "cache/exports/$PDF" > "$OUT/maintenance-record.pdf" || echo "no PDF found"
+tap_text "Back"; sleep 1.5; shot 08p_car_with_diary
 tap_text "Settings"; sleep 2; shot 09_settings_top
 tap_text "Daylight"; sleep 2; shot 09c_settings_light
 tap_text "Drive"; sleep 2; shot 09d_drive_light

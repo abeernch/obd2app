@@ -19,6 +19,7 @@ object Backup {
 
     private const val DB_ENTRY = "trips.db"
     private const val PREFS_ENTRY = "settings.json"
+    private const val PHOTO_PREFIX = "diary/"
     private const val PREFS_NAME = "settings"
 
     fun create(context: Context, dir: File): File {
@@ -36,6 +37,12 @@ object Backup {
             zip.putNextEntry(ZipEntry(PREFS_ENTRY))
             zip.write(prefsToJson(context).toString(2).toByteArray())
             zip.closeEntry()
+            // The diary's photos (receipts, parts, the work), by file name.
+            Diary.dir(context).listFiles()?.filter { it.isFile }?.forEach { f ->
+                zip.putNextEntry(ZipEntry(PHOTO_PREFIX + f.name))
+                f.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
         }
         return out
     }
@@ -44,12 +51,19 @@ object Backup {
     fun restore(context: Context, input: InputStream) {
         var dbBytes: ByteArray? = null
         var prefs: JSONObject? = null
+        // Photos are unpacked aside first, and take the place of the current ones only with the rest.
+        val incoming = File(context.cacheDir, "restore-photos").apply { deleteRecursively(); mkdirs() }
         ZipInputStream(input.buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                when (entry.name) {
-                    DB_ENTRY -> dbBytes = zip.readBytes()
-                    PREFS_ENTRY -> prefs = JSONObject(String(zip.readBytes()))
+                when {
+                    entry.name == DB_ENTRY -> dbBytes = zip.readBytes()
+                    entry.name == PREFS_ENTRY -> prefs = JSONObject(String(zip.readBytes()))
+                    entry.name.startsWith(PHOTO_PREFIX) -> {
+                        // The name only, never a path out of the folder.
+                        val name = File(entry.name).name
+                        if (name.isNotBlank() && !name.startsWith(".")) File(incoming, name).outputStream().use { zip.copyTo(it) }
+                    }
                 }
             }
         }
@@ -63,6 +77,11 @@ object Backup {
         File(db.path + "-journal").delete()
         db.writeBytes(bytes)
         prefs?.let { jsonToPrefs(context, it) }
+        val photos = Diary.dir(context)
+        photos.deleteRecursively()
+        photos.mkdirs()
+        incoming.listFiles()?.forEach { it.copyTo(File(photos, it.name), overwrite = true) }
+        incoming.deleteRecursively()
     }
 
     private fun prefsToJson(context: Context): JSONObject {

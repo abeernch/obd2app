@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var store: TripStore
     private lateinit var recordings: Recordings
     private lateinit var fuel: FuelLog
+    private lateinit var diary: com.abeernch.civicobd.core.Diary
 
     // Bumped when fill-ups or car settings change, so tank and service figures refresh.
     private var fuelTick by mutableStateOf(0)
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
         store = TripStore.get(this)
         recordings = Recordings(store)
         fuel = FuelLog(store)
+        diary = com.abeernch.civicobd.core.Diary(store, com.abeernch.civicobd.core.Diary.dir(this))
         LiveBus.update { it.copy(fuelPrice = settings.fuelPrice) }
         // An odometer reading typed during a drive by an earlier version left that drive out of the odometer.
         lifecycleScope.launch(Dispatchers.IO) { if (Car.repairReading(settings, store)) LiveBus.tripsChanged() }
@@ -147,6 +149,10 @@ class MainActivity : ComponentActivity() {
             val now = System.currentTimeMillis()
             fuel.add(com.abeernch.civicobd.core.Fillup(timeMs = now - 2 * day, litres = 45.0, price = 378.0, full = true, odometer = null), settings)
             store.insert(TripRow(startMs = now - day, endMs = now - day + 7 * 3_600_000, distanceKm = 420.0, fuelL = 30.0, driveS = 7 * 3_600.0))
+        }
+        // Test build only: one diary entry with a photo of a receipt, for the walkthrough and the PDF.
+        if (BuildConfig.TEST_HOOKS && intent.getBooleanExtra("seed_diary", false)) {
+            lifecycleScope.launch(Dispatchers.IO) { if (diary.all().isEmpty()) seedDiary() }
         }
         intent.getStringExtra("import_path")?.takeIf { BuildConfig.TEST_HOOKS }?.let { path ->
             lifecycleScope.launch {
@@ -424,6 +430,9 @@ class MainActivity : ComponentActivity() {
                             today = today, week = week, total = total,
                             onOpenFuel = { fuelOpen = true },
                             onServiceChanged = { fuelTick++ },
+                            diary = diary,
+                            store = store,
+                            onExportDiary = ::exportDiary,
                         )
                     }
                     Tab.Settings -> SettingsScreen(
@@ -687,6 +696,48 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportDir(): File = File(cacheDir, "exports").apply { mkdirs() }
+
+    /** The diary as a PDF maintenance record, with its photos, to share or keep. */
+    private fun exportDiary() {
+        lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                com.abeernch.civicobd.core.DiaryPdf.write(
+                    File(exportDir(), "civic-maintenance-record_$stamp.pdf"),
+                    diary.all(),
+                    com.abeernch.civicobd.core.Maintenance.load(settings).associate { it.key to it.name },
+                    Car.status(settings, store, 0.0).odometerKm,
+                    diary::photo,
+                )
+            }
+            shareFile(file, "application/pdf")
+        }
+    }
+
+    /** Test build only: a dated entry with parts, a linked job and a drawn receipt as its photo. */
+    private fun seedDiary() {
+        val bmp = android.graphics.Bitmap.createBitmap(900, 1200, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(bmp).apply {
+            drawColor(android.graphics.Color.rgb(245, 242, 232))
+            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 56f; color = android.graphics.Color.DKGRAY }
+            drawText("RECEIPT", 80f, 160f, p)
+            p.textSize = 40f
+            listOf("Timing belt kit   9,800", "Water pump   6,200", "Labour   2,500", "Total   18,500").forEachIndexed { i, t -> drawText(t, 80f, 300f + i * 90f, p) }
+        }
+        val tmp = File(cacheDir, "camera/seed.jpg").apply { parentFile?.mkdirs() }
+        tmp.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        val photo = diary.addPhoto { tmp.inputStream() }
+        val entry = diary.save(
+            com.abeernch.civicobd.core.DiaryEntry(
+                timeMs = System.currentTimeMillis() - 3 * 86_400_000L, title = "Timing belt and water pump",
+                notes = "Belt, tensioner and pump changed together. Genuine parts.", odometerKm = 199_800.0, cost = 18_500.0,
+                shop = "Workshop on GT Road",
+                parts = listOf(com.abeernch.civicobd.core.Part("Timing belt", "Gates", "T224"), com.abeernch.civicobd.core.Part("Water pump", "Aisin", "WPH-036")),
+                jobs = listOf("timing"), photos = listOf(photo),
+            )
+        )
+        com.abeernch.civicobd.core.Maintenance.save(settings, com.abeernch.civicobd.core.Maintenance.fromDiary(com.abeernch.civicobd.core.Maintenance.load(settings), entry))
+    }
 
     private fun shareFile(file: File, mime: String = "text/csv") {
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)

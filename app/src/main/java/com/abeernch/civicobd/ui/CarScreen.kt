@@ -40,8 +40,9 @@ import com.abeernch.civicobd.core.Summary
 import com.abeernch.civicobd.core.Tank
 
 /**
- * The car's condition in one place: anything that needs attention first, then service jobs,
- * fuel tank, fault codes, battery and readiness. Live readings sit folded at the bottom.
+ * The car's condition in one place: anything that needs attention first, the maintenance diary, the
+ * service jobs coming up (the full list on its own page), fuel tank, fault codes, battery and readiness.
+ * Live readings sit folded at the bottom.
  */
 @Composable
 fun CarScreen(
@@ -55,8 +56,29 @@ fun CarScreen(
     total: Summary,
     onOpenFuel: () -> Unit,
     onServiceChanged: () -> Unit,
+    diary: com.abeernch.civicobd.core.Diary? = null,
+    store: com.abeernch.civicobd.core.TripStore? = null,
+    onExportDiary: () -> Unit = {},
 ) {
     var tick by remember { mutableStateOf(0) }
+    // The Car tab itself, the full service list, or the diary (opened on a new entry, or its list).
+    var page by rememberSaveable { mutableStateOf("car") }
+    if (page == "service") {
+        ServicePage(settings, car.odometerKm, onBack = { page = "car" }) { tick++; onServiceChanged() }
+        return
+    }
+    if ((page == "diary" || page == "diaryNew") && diary != null && store != null) {
+        DiaryScreen(
+            diary, store, settings, startNew = page == "diaryNew",
+            onChanged = { tick++; onServiceChanged() },
+            onExport = onExportDiary,
+            onBack = { page = "car" },
+        )
+        return
+    }
+    val entries by androidx.compose.runtime.produceState(emptyList<com.abeernch.civicobd.core.DiaryEntry>(), tick, diary) {
+        value = diary?.let { d -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { d.all() }.getOrDefault(emptyList()) } } ?: emptyList()
+    }
     val statuses = remember(tick, car.odometerKm) { Maintenance.statuses(settings, car.odometerKm) }
     // The list itself keeps a fixed order, so rows never move while you edit one.
     val rows = remember(tick, car.odometerKm) { Maintenance.load(settings).map { Maintenance.status(it, car.odometerKm) } }
@@ -83,6 +105,12 @@ fun CarScreen(
         }
         alert?.let { (text, color) -> AlertLine(text, color) }
 
+        diary?.let { d ->
+            Box(Modifier.padding(horizontal = 20.dp)) {
+                DiaryCard(entries, d, onOpen = { page = "diary" }, onNew = { page = "diaryNew" })
+            }
+        }
+
         Column(Modifier.padding(horizontal = 20.dp)) {
             Section("Service") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
@@ -98,7 +126,12 @@ fun CarScreen(
                         style = Type.label,
                     )
                 }
-                rows.forEach { st ->
+                // Only what is coming up; the full list is a tap away.
+                val upNext = remember(rows) { Maintenance.comingUp(rows) }
+                if (upNext.isEmpty()) {
+                    Text("No jobs logged yet. Open the list to set when each was last done.", style = Type.label, modifier = Modifier.padding(vertical = 6.dp))
+                }
+                upNext.forEach { st ->
                     androidx.compose.runtime.key(st.item.key) {
                     ServiceRow(st, car.odometerKm) { updated ->
                         Maintenance.save(settings, Maintenance.load(settings).map { if (it.key == updated.key) updated else it })
@@ -106,6 +139,13 @@ fun CarScreen(
                         onServiceChanged()
                     }
                     }
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).pressable { page = "service" }.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("All ${rows.size} service jobs", style = Type.body.copy(color = Palette.Accent), modifier = Modifier.weight(1f))
+                    IconChevron(Palette.Accent, left = false, size = 18.dp)
                 }
             }
         }
@@ -143,6 +183,50 @@ private fun AlertLine(text: String, color: Color) {
     ) {
         Box(Modifier.padding(end = 12.dp).width(4.dp).height(22.dp).clip(RoundedCornerShape(2.dp)).background(color))
         Text(text, style = Type.body.copy(color = Palette.Value))
+    }
+}
+
+/**
+ * Every service job, in groups: engine, brakes, wheels and suspension, and the rest. Each row opens to
+ * change its interval or log it as done.
+ */
+@Composable
+private fun ServicePage(settings: AppSettings, odometerKm: Double?, onBack: () -> Unit, onChanged: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    var tick by remember { mutableStateOf(0) }
+    val rows = remember(tick, odometerKm) { Maintenance.load(settings).map { Maintenance.status(it, odometerKm) } }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Back", style = Type.body.copy(color = Palette.Accent),
+                modifier = Modifier.pressable(onClick = onBack).padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
+            )
+            Text("Service", style = Type.title)
+        }
+        Text(
+            (odometerKm?.let { "%,d km on the odometer. ".format(it.toLong()) } ?: "") + "Tap a job to set its interval or log it as done.",
+            style = Type.label, modifier = Modifier.padding(top = 8.dp),
+        )
+        Maintenance.Group.entries.forEach { g ->
+            val inGroup = rows.filter { Maintenance.group(it.item.key) == g }
+            if (inGroup.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                Section(g.title) {
+                    inGroup.forEach { st ->
+                        androidx.compose.runtime.key(st.item.key) {
+                            ServiceRow(st, odometerKm) { updated ->
+                                Maintenance.save(settings, Maintenance.load(settings).map { if (it.key == updated.key) updated else it })
+                                tick++
+                                onChanged()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(32.dp))
     }
 }
 

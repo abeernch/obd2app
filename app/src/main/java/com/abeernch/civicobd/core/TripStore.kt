@@ -103,6 +103,7 @@ class TripStore private constructor(context: Context) :
             addColumnIfMissing(db, "trips", "odo_end", "REAL")
             addColumnIfMissing(db, "trips", "shared", "REAL")
             addColumnIfMissing(db, "trips", "passengers", "INTEGER")
+            db.execSQL(Diary.CREATE)
         }
     }
 

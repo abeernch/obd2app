@@ -66,6 +66,35 @@ object Maintenance {
         return DEFAULTS.map { byKey[it.key] ?: it } + saved.filter { s -> DEFAULTS.none { it.key == s.key } }
     }
 
+    /** The groups the full list is shown in. */
+    enum class Group(val title: String) { Engine("Engine"), Brakes("Brakes"), Wheels("Wheels and suspension"), Other("Other") }
+
+    fun group(key: String): Group = when (key) {
+        "oil", "air", "cabin", "plugs", "timing", "drivebelt", "coolant", "gearbox" -> Group.Engine
+        "brake", "pads" -> Group.Brakes
+        "tyres", "alignment", "tyresnew", "shocks", "bushes" -> Group.Wheels
+        else -> Group.Other
+    }
+
+    /**
+     * What the Car tab shows: every job overdue, then the jobs due soonest, [n] in all at least. Only logged
+     * jobs have a due date; the rest are on the full list.
+     */
+    fun comingUp(statuses: List<ServiceStatus>, n: Int = 3): List<ServiceStatus> {
+        val known = statuses.filter { it.known || it.badReading }.sortedBy { if (it.badReading) -1.0 else it.life ?: 9.0 }
+        return known.take(maxOf(n, known.count { it.overdue || it.badReading }))
+    }
+
+    /**
+     * The jobs a diary entry covers, logged as done on its day at its odometer. A job already logged later
+     * than the entry keeps that.
+     */
+    fun fromDiary(items: List<ServiceItem>, entry: DiaryEntry): List<ServiceItem> = items.map { item ->
+        if (item.key in entry.jobs && (item.doneMs == null || entry.timeMs >= item.doneMs)) {
+            item.copy(doneKm = entry.odometerKm, doneMs = entry.timeMs)
+        } else item
+    }
+
     fun load(settings: AppSettings): List<ServiceItem> {
         val saved = settings.serviceJson
         if (saved.isNullOrBlank()) {
