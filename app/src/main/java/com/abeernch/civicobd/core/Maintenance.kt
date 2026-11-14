@@ -34,16 +34,37 @@ object Maintenance {
 
     private const val DAY_MS = 86_400_000L
 
-    /** Starting list for a 2005 Civic. Every interval can be changed in the Car tab. */
+    /**
+     * Starting list for a 2005 Civic, engine first, then brakes, then wheels and suspension. Every interval
+     * can be changed in the Car tab; a job with only a time (the battery) has no distance.
+     */
     val DEFAULTS = listOf(
         ServiceItem("oil", "Engine oil and filter", 5_000.0, 6),
         ServiceItem("air", "Air filter", 20_000.0, 12),
+        ServiceItem("cabin", "Cabin AC filter", 15_000.0, 12),
         ServiceItem("plugs", "Spark plugs", 100_000.0, 60),
+        ServiceItem("timing", "Timing belt", 100_000.0, 84),
+        ServiceItem("drivebelt", "Drive belt", 40_000.0, 24),
         ServiceItem("coolant", "Coolant", 40_000.0, 24),
-        ServiceItem("brake", "Brake fluid", 40_000.0, 24),
         ServiceItem("gearbox", "Gearbox oil", 40_000.0, 36),
+        ServiceItem("brake", "Brake fluid", 40_000.0, 24),
+        ServiceItem("pads", "Brake pads", 30_000.0, 24),
         ServiceItem("tyres", "Tyre rotation", 10_000.0, 12),
+        ServiceItem("alignment", "Wheel alignment", 10_000.0, 12),
+        ServiceItem("tyresnew", "Tyres", 50_000.0, 60),
+        ServiceItem("shocks", "Shock absorbers", 80_000.0, 72),
+        ServiceItem("bushes", "Suspension bushes", 40_000.0, 36),
+        ServiceItem("battery", "Battery", null, 36),
     )
+
+    /**
+     * The saved jobs, with any job added to the list since they were saved, in the list's order. What was
+     * logged and set for a job is kept; jobs not in the list stay, at the end.
+     */
+    internal fun merged(saved: List<ServiceItem>): List<ServiceItem> {
+        val byKey = saved.associateBy { it.key }
+        return DEFAULTS.map { byKey[it.key] ?: it } + saved.filter { s -> DEFAULTS.none { it.key == s.key } }
+    }
 
     fun load(settings: AppSettings): List<ServiceItem> {
         val saved = settings.serviceJson
@@ -55,7 +76,7 @@ object Maintenance {
         }
         return try {
             val arr = JSONArray(saved)
-            (0 until arr.length()).map { i ->
+            merged((0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 ServiceItem(
                     key = o.getString("key"),
@@ -65,7 +86,7 @@ object Maintenance {
                     doneKm = o.optDouble("doneKm").takeIf { !it.isNaN() },
                     doneMs = if (o.has("doneMs")) o.getLong("doneMs") else null,
                 )
-            }
+            })
         } catch (e: Exception) {
             DEFAULTS
         }

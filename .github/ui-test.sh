@@ -174,6 +174,10 @@ adb shell input swipe 540 1700 540 400 400; sleep 1.5; shot 08c_car_battery
 adb shell input swipe 540 500 540 2000 300; adb shell input swipe 540 500 540 2000 300; sleep 1
 tap_text "Engine oil and filter"; sleep 2; shot 08d_car_service_edit
 tap_text "Engine oil and filter"; sleep 1
+# The longer list: the timing belt logged as done today, then the jobs further down.
+scroll_tap "Timing belt"; sleep 2; shot 08e_car_timing_belt
+scroll_tap "Done today"; sleep 2; shot 08f_car_timing_done
+adb shell input swipe 540 1600 540 900 400; sleep 1.5; shot 08g_car_service_lower
 tap_text "Settings"; sleep 2; shot 09_settings_top
 tap_text "Daylight"; sleep 2; shot 09c_settings_light
 tap_text "Drive"; sleep 2; shot 09d_drive_light

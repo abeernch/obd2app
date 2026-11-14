@@ -779,4 +779,27 @@ class CoreTest {
         assertEquals(0.4, tank.usedL, 1e-9)
         assertEquals(49.6, tank.leftL!!, 1e-9)
     }
+
+    @Test
+    fun newServiceJobsJoinASavedListWithoutLosingWhatWasLogged() {
+        val M = com.abeernch.civicobd.core.Maintenance
+        // Saved by an earlier version: its seven jobs, the oil logged with its own interval.
+        val saved = listOf(
+            com.abeernch.civicobd.core.ServiceItem("oil", "Engine oil and filter", 5_000.0, 6, doneKm = 195_000.0, doneMs = 1L),
+            com.abeernch.civicobd.core.ServiceItem("tyres", "Tyre rotation", 8_000.0, 12),
+        )
+        val list = M.merged(saved)
+        assertEquals(M.DEFAULTS.map { it.key }, list.map { it.key })
+        assertEquals(195_000.0, list.first { it.key == "oil" }.doneKm!!, 1e-9)
+        assertEquals(8_000.0, list.first { it.key == "tyres" }.everyKm!!, 1e-9)
+        assertTrue(list.any { it.key == "timing" && it.name == "Timing belt" })
+        // The battery goes by time only: never logged, nothing is due; logged, it is due by months.
+        val battery = list.first { it.key == "battery" }
+        assertEquals(null, battery.everyKm)
+        assertEquals(false, M.status(battery, 199_872.0).known)
+        assertEquals(36 * 30 - 1, M.status(battery.copy(doneMs = 0L), 199_872.0, now = 86_400_000L).dueInDays)
+        // A job not in the list is kept, at the end.
+        val custom = com.abeernch.civicobd.core.ServiceItem("hoses", "Radiator hoses", 60_000.0, 48)
+        assertEquals("hoses", M.merged(saved + custom).last().key)
+    }
 }
